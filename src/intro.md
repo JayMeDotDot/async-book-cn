@@ -1,51 +1,50 @@
-NOTE: this guide is currently undergoing a rewrite after a long time without much work. It is work in progress, much is missing, and what exists is a bit rough.
+注意：本指南在长时间缺乏维护后，目前正在进行重写。重写工作仍在进行中，缺失内容很多，现有部分也略显粗糙。
 
-# Introduction
+# 简介
 
-This book is a guide to asynchronous programming in Rust. It is designed to help you take your first steps and to discover more about advanced topics. We don't assume any experience with asynchronous programming (in Rust or another language), but we do assume you're familiar with Rust already. If you want to learn about Rust, you could start with [The Rust Programming Language](https://doc.rust-lang.org/stable/book/).
+本书是一本关于 Rust 异步编程的指南。它旨在帮助你迈出第一步，并进一步探索更多高级主题。我们不假设你具备任何异步编程经验（无论是 Rust 还是其他语言），但我们假设你已经熟悉 Rust。如果你想学习 Rust，可以从[《Rust 程序设计语言》](https://doc.rust-lang.org/stable/book/)开始。
 
-This book has two main parts: [part one](part-guide/intro.md) is a beginners guide, it is designed to be read in-order and to take you from total beginner to intermediate level. Part two is a collection of stand-alone chapters on more advanced topics. It should be useful once you've worked through part one or if you already have some experience with async Rust.
+本书分为两个主要部分：[第一部分](part-guide/intro.md)是入门指南，设计为按顺序阅读，带你从完全的新手达到中级水平。第二部分是关于更高级主题的若干独立章节。在学完第一部分之后，或者如果你已经具备一些异步 Rust 的经验，这部分应该会对你有所帮助。
 
-You can navigate this book in multiple ways:
+你可以通过多种方式浏览本书：
 
-* You can read it front to back, in order. This is the recommend path for newcomers to async Rust, at least for [part one](part-guide/intro.md) of the book.
-* There is a summary contents on the left-hand side of the webpage.
-* If you want information about a broad topic, you could start with the topic index.
-* If you want to find all discussion about a specific topic, you could start with the detailed index.
-* You could see if your question is answered in the FAQs.
-
-
-## What is Async Programming and why would you do it?
-
-In concurrent programming, the program does multiple things at the same time (or at least appears to). Programming with threads is one form of concurrent programming. Code within a thread is written in sequential style and the operating system executes threads concurrently. With async programming, concurrency happens entirely within your program (the operating system is not involved). An async runtime (which is just another crate in Rust) manages async tasks in conjunction with the programmer explicitly yielding control by using the `await` keyword.
-
-Because the operating system is not involved, *context switching* in the async world is very fast. Furthermore, async tasks have much lower memory overhead than operating system threads. This makes async programming a good fit for systems which need to handle very many concurrent tasks and where those tasks spend a lot of time waiting (for example, for client responses or for IO). It also makes async programming a good fit for microcontrollers with very limited amounts of memory and no operating system that provides threads.
-
-Async programming also offers the programmer fine-grained control over how tasks are executed (levels of parallelism and concurrency, control flow, scheduling, and so forth). This means that async programming can be expressive as well as ergonomic for many uses. In particular, async programming in Rust has a powerful concept of cancellation and supports many different flavours of concurrency (expressed using constructs including `spawn` and its variations, `join`, `select`, `for_each_concurrent`, etc.). These allow composable and reusable implementations of concepts like timeouts, pausing, and throttling.
+* 你可以按顺序从头读到尾。对于异步 Rust 的新手来说，这是推荐的阅读路径，至少对于本书的[第一部分](part-guide/intro.md)而言是如此。
+* 网页左侧有一个目录摘要。
+* 如果你想了解某个宽泛主题的信息，可以按主题检索。
+* 如果你想查找关于某个具体主题的所有讨论，可以从详细索引开始。
+* 你也可以看看你的问题是否在常见问题（FAQ）中已有解答。
 
 
-## Hello, world!
+## 什么是异步编程，你为什么要用它？
 
-Just to give you a taste of what async Rust looks like, here is a 'hello, world' example. There is no concurrency, and it doesn't really take advantage of being async. It does define and use an async function, and it does print "hello, world!":
+在并发编程中，程序会同时做多件事（或至少看起来如此）。使用线程进行编程是并发编程的一种形式。线程内的代码按顺序进行编写，由操作系统并发地执行这些线程。而在异步编程中，并发完全发生在你的程序内部（操作系统并不参与）。异步运行时（Rust 中另一个 crate）管理着异步任务，程序员可以通过 `await` 关键字显式地让出控制权，二者协同工作。
+
+由于操作系统并不参与，异步世界中的*上下文切换*非常快。此外，异步任务的内存开销比操作系统的线程低得多。这使得异步编程非常适合那些需要处理大量并发任务、且这些任务会花大量时间等待（例如等待客户端响应或 IO）的情况。它也同样适合内存极其有限、且没有提供线程的操作系统的微控制器。
+
+异步编程还让程序员能够对任务的执行方式（并行与并发的级别、控制流、调度等等）进行细粒度的控制。这意味着异步编程在许多用途上既富于表现力，又符合人体工程学。尤其是 Rust 中的异步编程拥有强大的取消概念，并支持多种不同风格的并发（通过 `spawn` 及其变体、`join`、`select`、`for_each_concurrent` 等构造来表达）。这些使得超时、暂停和限流等概念可以得到可组合、可复用的实现。
+
+
+## Hello, world！
+
+只是为了让你感受一下异步 Rust 的样子，这里给出一个 "hello, world" 示例。其中没有并发，也并未真正利用异步的优势。它只是定义并使用了一个异步函数，并且只是打印了 "hello, world!"：
 
 ```rust,edition2021
 {{#include ../examples/hello-world/src/main.rs}}
 ```
 
-We'll explain everything in detail later. For now, note how we define an asynchronous function using `async fn` and call it using `.await` - an async function in Rust doesn't do anything unless it is `await`ed[^blocking].
+稍后我们会详细解释一切。现在只需注意，我们如何使用 `async fn` 定义异步函数，并使用 `.await` 来调用它——在 Rust 中，异步函数除非被 `await`，否则不会做任何事[^blocking]。
 
-Like all examples in this book, if you want to see the full example (including `Cargo.toml`, for example) or to run it yourself locally, you can find them in the book's GitHub repo: e.g., [examples/hello-world](https://github.com/rust-lang/async-book/tree/master/examples/hello-world).
-
-
-## Development of Async Rust
-
-The async features of Rust have been in development for a while, but it is not a 'finished' part of the language. Async Rust (at least the parts available in the stable compiler and standard libraries) is reliable and performant. It is used in production in some of the most demanding situations at the largest tech companies. However, there are some missing parts and rough edges (rough in the sense of ergonomics rather than reliability). You are likely to stumble upon some of these parts during your journey with async Rust. For most missing parts, there are workarounds and these are covered in this book.
-
-Currently, working with async iterators (also known as streams) is where most users find some rough parts. Some uses of async in traits are not yet well-supported. There is not a good solution for async destruction.
-
-Async Rust is being actively worked on. If you want to follow development, you can check out the Async Working Group's [home page](https://rust-lang.github.io/wg-async/meetings.html) which includes their [roadmap](https://rust-lang.github.io/wg-async/vision/roadmap.html). Or you could read the async [project goal](https://github.com/rust-lang/rust-project-goals/issues/105) within the Rust Project.
-
-Rust is an open source project. If you'd like to contribute to development of async Rust, start at the [contributing docs](https://github.com/rust-lang/rust/blob/master/CONTRIBUTING.md) in the main Rust repo.
+与本书中的所有示例一样，如果你想查看完整示例（例如包括 `Cargo.toml`）或自己在本地运行，可以在本书的 GitHub 仓库中找到它们：例如 [examples/hello-world](https://github.com/rust-lang/async-book/tree/master/examples/hello-world)。
 
 
-[^blocking]: This is actually a bad example because `println` is *blocking IO* and it is generally a bad idea to do blocking IO in async functions. We'll explain what blocking IO is in [chapter TODO]() and why you shouldn't do blocking IO in an async function in [chapter TODO]().
+## 异步 Rust 的发展
+
+Rust 的异步特性已经开发了一段时间，但它还并非语言中一个"已完成"的部分。异步 Rust（至少在稳定版编译器和标准库中可用的部分）是可靠且高效的。它被一些最大的科技公司在最严苛的生产环境中使用。然而，仍有一些缺失的部分和不够顺滑之处（所谓"不够顺滑"指的是易用性而非可靠性）。在你使用异步 Rust 的过程中，很可能会遇到其中一些。对于大多数缺失的部分，都有变通方案，本书会予以介绍。
+
+目前，使用异步迭代器（也称为流）是大多数用户感到不够顺滑的地方。trait 中的某些异步用法尚未得到良好支持。对于异步析构，目前还没有好的解决方案。
+
+异步 Rust 正在被积极开发。如果你想跟进开发进展，可以查看异步工作组的[主页](https://rust-lang.github.io/wg-async/meetings.html)，其中包含他们的[路线图](https://rust-lang.github.io/wg-async/vision/roadmap.html)。你也可以阅读 Rust 项目中的异步[项目目标](https://github.com/rust-lang/goals/issues/105)。
+
+Rust 是一个开源项目。如果你想为异步 Rust 的开发做贡献，可以从 Rust 主仓库中的[贡献文档](https://github.com/rust-lang/rust/blob/master/CONTRIBUTING.md)开始。
+
+[^blocking]:实际上这是一个糟糕的示例，因为 `println` 属于*阻塞式 IO*，而在 async 函数中执行阻塞式 IO 通常不是个好主意。我们将在[章节 TODO]()中解释什么是阻塞式 IO，并在[章节 TODO]()中说明为什么不应在 async 函数中执行阻塞式 IO。

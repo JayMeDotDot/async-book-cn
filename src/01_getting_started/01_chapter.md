@@ -1,25 +1,13 @@
-# Getting Started
+# 入门指南
 
-Welcome to Asynchronous Programming in Rust! If you're looking to start writing
-asynchronous Rust code, you've come to the right place. Whether you're building
-a web server, a database, or an operating system, this book will show you
-how to use Rust's asynchronous programming tools to get the most out of your
-hardware.
+欢迎阅读《Rust 异步编程》！如果你想开始编写异步 Rust 代码，那么你来对地方了。无论你是在构建 Web 服务器、数据库，还是操作系统，本书都将向你展示如何使用 Rust 的异步编程工具，来充分发挥硬件性能。
 
-## What This Book Covers
+## 本书内容
 
-This book aims to be a comprehensive, up-to-date guide to using Rust's async
-language features and libraries, appropriate for beginners and old hands alike.
+本书旨在成为一份全面且最新的指南，介绍如何使用 Rust 的异步语言特性和库，适合初学者和经验丰富的开发者。
 
-- The early chapters provide an introduction to async programming in general,
-and to Rust's particular take on it.
+- 开头的章节将介绍异步编程的基础知识，以及 Rust 对异步编程的独特处理方式。
+- 中间的章节将讨论编写异步代码时可以使用的关键工具和控制流工具，并描述如何组织库和应用程序的最佳实践，以最大化性能和可复用性。
+- 本书的最后一部分将涵盖更广泛的异步生态系统，并提供多个示例来演示如何完成常见任务。
 
-- The middle chapters discuss key utilities and control-flow tools you can use
-when writing async code, and describe best-practices for structuring libraries
-and applications to maximize performance and reusability.
-
-- The last section of the book covers the broader async ecosystem, and provides
-a number of examples of how to accomplish common tasks.
-
-With that out of the way, let's explore the exciting world of Asynchronous
-Programming in Rust!
+了解了这些之后，让我们一起探索 Rust 异步编程的精彩世界吧！

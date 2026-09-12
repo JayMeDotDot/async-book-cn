@@ -1,19 +1,19 @@
-# Part 1: A guide to asynchronous programming in Rust
+# 第一部分：Rust 异步编程指南
 
-This part of the book is a tutorial-style guide to async Rust. It is aimed at newcomers to async programming in Rust. It should be useful whether or not you've done async programming in other languages. If you have, you might skip the first section or skim it as a refresher. You might also want to read this [comparison to async in other languages]() sooner rather than later.
+本书的这一部分是异步 Rust 的教程式指南，主要面向 Rust 异步编程的新手。无论你是否在其他编程语言中做过异步编程，这部分内容都会对你有所帮助。如果你已经有异步编程经验，可以跳过第一节，或者快速浏览一下作为复习。你可能还想尽早阅读这篇[与其他语言中的异步进行比较]()。
 
-## Core concepts
+## 核心概念
 
-We'll start by discussing different models of [concurrent programming](concurrency.md), using processes, threads, or async tasks. The first chapter will cover the essential parts of Rust's async model before we get into the nitty-gritty of async programming in the [second chapter](async-await.md) where we introduce the async and await programming paradigm. We cover some more async programming concepts in the [following chapter](more-async-await.md).
+我们将从讨论[并发编程](concurrency.md)的不同模型开始，包括使用进程、线程或异步任务。第一章将介绍 Rust 异步模型的核心部分，然后在[第二章](async-await.md)中深入探讨异步编程的细节，我们将引入 async 和 await 编程范式。在[随后的章节](more-async-await.md)中，我们会介绍更多异步编程概念。
 
-One of the main motivations for async programming is more performant IO, which we cover in the [next chapter](io.md). We also cover *blocking* in detail in the same chapter. Blocking is a major hazard in async programming where a thread is blocked from making progress by an operation (often IO) which synchronously waits.
+异步编程的主要动机之一是实现更高性能的 IO，我们将在[下一章](io.md)中讨论这个话题。在同一章中，我们还会详细介绍*阻塞*（blocking）。阻塞是异步编程中的一个主要隐患，指的是线程被某个同步等待的操作（通常是 IO）所阻塞，无法继续推进。
 
-Another motivation for async programming is that it facilitates new models for [abstraction and composition of concurrent code](concurrency-primitives.md). After covering that, we move on to [synchronization](sync.md) between concurrent tasks.
+异步编程的另一个动机是它为[并发代码的抽象与组合](concurrency-primitives.md)提供了新的模型。在介绍完这些之后，我们将转向并发任务之间的[同步](sync.md)问题。
 
-There is a chapter on [tools for async programming](tools.md).
+还有一章是关于[异步编程工具](tools.md)的。
 
-The last few chapters cover some more specialised topics, starting with [async destruction and clean-up](dtors.md) (which is a common requirement, but since there is currently not a good built-in solution, is a bit of a specialist topic).
+最后几章涵盖了一些更专业的主题，首先是[异步销毁与清理](dtors.md)（这是一个常见需求，但由于目前没有好的内置解决方案，因此算是一个稍显专业的主题）。
 
-The next two chapters in the guide go into detail on [futures](futures.md) and [runtimes](runtimes.md), two fundamental building blocks for async programming.
+接下来的两章将详细介绍 [Future](futures.md) 和[运行时](runtimes.md)，它们是异步编程的两个基础构建块。
 
-Finally, we cover [timers and signal handling](timers-signals.md) and [async iterators](streams.md) (aka streams). The latter are how we program with sequences of async events (c.f., individual async events which are represented using futures or async functions). This is an area where the language is being actively developed and can be a little rough around the edges.
+最后，我们将介绍[定时器与信号处理](timers-signals.md)以及[异步迭代器](streams.md)（也称为流）。后者是我们处理异步事件序列的方式（相比之下，单个异步事件使用 future 或异步函数来表示）。这是一个正在积极开发中的领域，可能会有一些不够完善的地方。

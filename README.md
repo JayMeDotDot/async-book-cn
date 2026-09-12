@@ -1,12 +1,12 @@
-# Asynchronous Programming in Rust
+# Rust 异步编程
 
-This book aims to be a thorough guide to asynchronous programming in Rust, from beginner to advanced.
+本书旨在成为一本详尽的 Rust 异步编程指南，涵盖从入门到进阶的内容。
 
-This book has been unmaintained for a long time and has not had a lot of love. We're currently working to bring it up to date and make it much better! As we're making some major changes, the content might be a bit mixed up, parts may be duplicated or missing, etc. Bear with us, it'll get better soon :-) To see what we're planning and to let us know what you think, see [issue 224](https://github.com/rust-lang/async-book/issues/224).
+本书已经很久没有维护，也缺乏关注。我们目前正在努力将其更新并大幅改进！由于我们正在进行一些重大更改，内容可能会有些混乱，部分内容可能会重复或缺失，等等。请多多包涵，很快就会好起来的 :-) 要了解我们的计划并告诉我们你的想法，请参见 [issue 224](https://github.com/rust-lang/async-book/issues/224)。
 
-## Requirements
+## 环境要求
 
-The async book is built with [`mdbook`] ([docs](https://rust-lang.github.io/mdBook/index.html)), you can install it using cargo.
+本异步书使用 [`mdbook`](https://rust-lang.github.io/mdBook/index.html) 构建，你可以使用 cargo 来安装它。
 
 ```
 cargo install mdbook
@@ -15,19 +15,21 @@ cargo install mdbook-linkcheck2
 
 [`mdbook`]: https://github.com/rust-lang/mdBook
 
-## Building
-
-To create a finished book, run `mdbook build` to generate it under the `book/` directory.
+## 构建
+要生成最终的书本，请运行 `mdbook build`，它会在 `book/` 目录下生成。
 
 ```
 mdbook build
 ```
 
-## Development
+## 开发
 
-While writing it can be handy to see your changes, `mdbook serve` will launch a local web
-server to serve the book.
+在编写时，能够实时查看你的更改会非常方便，`mdbook serve` 会启动一个本地 Web 服务器来提供本书的预览。
 
 ```
 mdbook serve
 ```
+
+## 贡献
+
+本仓库是 [`async-book`](https://github.com/rust-lang/async-book) 的中文翻译版，如发现翻译有误或内容落后于上游仓库，欢迎参与贡献。

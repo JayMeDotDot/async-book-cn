@@ -1,12 +1,12 @@
 [book]
-title = "Asynchronous Programming in Rust"
+title = "Rust 异步编程（中文版）"
 authors = ["Taylor Cramer", "Nicholas Cameron", "Open source contributors"]
 
 [build]
 create-missing = false
 
 [output.html]
-git-repository-url = "https://github.com/rust-lang/async-book"
+git-repository-url = "https://github.com/JayMeDotDot/async-book-cn"
 site-url = "/async-book/"
 
 [output.linkcheck2]

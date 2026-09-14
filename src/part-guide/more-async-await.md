@@ -1,79 +1,79 @@
-# More async/await topics
+# 更多 async/await 主题
 
-## Unit tests
+## 单元测试
 
-How to unit test async code? The issue is that you can only await from inside an async context, and unit tests in Rust are not async. Luckily, most runtimes provide a convenience attribute for tests similar to the one for `async main`. Using Tokio, it looks like this:
+如何对异步代码进行单元测试？问题在于，你只能在异步上下文内部使用 `await`，而 Rust 中的单元测试本身并不是异步的。幸运的是，大多数运行时都为测试提供了一个便捷的属性（attribute），类似于 `async main` 所使用的那种。使用 Tokio 时，它看起来是这样的：
 
 ```rust,norun
 #[tokio::test]
 async fn test_something() {
-  // Write a test here, including all the `await`s you like.
+    // 在这里编写测试，可以随意使用所有你需要的 `await`。
 }
 ```
 
-There are many ways to configure the test, see the [docs](https://docs.rs/tokio/latest/tokio/attr.test.html) for details.
+测试有多种配置方式，详情请参阅[文档](https://docs.rs/tokio/latest/tokio/attr.test.html)。
 
-There are some more advanced topics in testing async code (e.g., testing for race conditions, deadlock, etc.), and we'll cover some of those [later]() in this guide.
+在异步代码测试方面还有一些更高级的主题（例如：测试竞态条件、死锁等），我们稍后会在本指南中介绍其中的[一部分]()。
 
 
-## Blocking and cancellation
+## 阻塞与取消
 
-Blocking and cancellation are important to keep in mind when programming with async Rust. These concepts are not localised to any particular feature or function, but are ubiquitous properties of the system which you must understand to write correct code.
+在使用异步 Rust 编程时，阻塞和取消是两个需要牢记在心的重要概念。这些概念并不局限于某个特定的特性或函数，而是贯穿整个系统的普遍性质，你必须理解它们才能写出正确的代码。
 
-### Blocking IO
+### 阻塞式 IO
 
-We say a thread (note we're talking about OS threads here, not async tasks) is blocked when it can't make any progress. That's usually because it is waiting for the OS to complete a task on its behalf (usually I/O). Importantly, while a thread is blocked, the OS knows not to schedule it so that other threads can make progress. This is fine in a multithreaded program because it lets other threads make progress while the blocked thread is waiting. However, in an async program, there are other tasks which should be scheduled on the same OS thread, but the OS doesn't know about those and keeps the whole thread waiting. This means that rather than the single task waiting for its I/O to complete (which is fine), many tasks have to wait (which is not fine).
+当一个线程（注意这里说的是操作系统线程，而不是异步任务）无法继续推进时，我们就说它被阻塞了。这通常是因为它在等待操作系统替它完成某项任务（通常是 I/O）。重要的是，当一个线程被阻塞时，操作系统知道不应该再调度它，从而让其他线程得以推进。在多线程程序中这没问题，因为它允许其他线程在被阻塞的线程等待的同时继续工作。然而，在异步程序中，还有其他任务本应被调度到同一个操作系统线程上，但操作系统并不了解这些任务的存在，而是让整个线程一直等待。这意味着，不再是单个任务等待其 I/O 完成（这没问题），而是许多任务都不得不等待（这就有问题了）。
 
-We’ll talk soon about non-blocking/async I/O. For now, just know that non-blocking I/O is I/O that the async runtime is aware of, so only the current task waits; the thread itself is not blocked. It is very important to only use non-blocking I/O from an async task, never blocking I/O (which is the only kind provided in Rust's standard library).
+我们很快就会讨论非阻塞/异步 I/O。现在只需知道，非阻塞 I/O 是异步运行时所感知到的 I/O，因此只有当前任务在等待；线程本身并没有被阻塞。在异步任务中只使用非阻塞 I/O、绝不使用阻塞 I/O（Rust 标准库只提供阻塞 I/O）这一点非常重要。
 
-### Blocking computation
+### 阻塞式计算
 
-You can also block the thread by doing computation (this is not quite the same as blocking I/O, since the OS is not involved, but the effect is similar). If you have a long-running computation (with or without blocking I/O) without yielding control to the runtime, then that task will never give the runtime's scheduler a chance to schedule other tasks. Remember that async programming uses cooperative multitasking. Here a task is not cooperating, so other tasks won't get a chance to get work done. We'll discuss ways to mitigate this later.
+你也可以通过执行计算来阻塞线程（这和阻塞式 I/O 不完全相同，因为操作系统并未参与，但效果类似）。如果你有一段长时间运行的计算（无论是否涉及阻塞式 I/O）而不将控制权交还给运行时，那么这个任务就永远不会给运行时的调度器去调度其他任务的机会。请记住，异步编程使用的是协作式多任务。在这里，某个任务没有进行协作，因此其他任务就得不到执行工作的机会。我们稍后会讨论缓解这一问题的方法。
 
-There are many other ways to block a whole thread, and we'll come back to blocking several times in this guide.
+阻塞整个线程的方式还有很多，在本指南中我们会多次回到阻塞这个话题。
 
-### Cancellation
+### 取消
 
-Cancellation means stopping a future (or task) from executing. Since in Rust (and in contrast to many other async/await systems), futures must be driven forward by an external force (like the async runtime), if a future is no longer driven forward then it will not execute any more. If a future is dropped (remember, a future is just a plain old Rust object), then it can never make any more progress and is canceled.
+取消（cancellation）指的是停止一个 future（或任务）的执行。由于在 Rust 中（与许多其他 async/await 系统不同），future 必须由外部力量（例如异步运行时）来驱动推进，因此如果一个 future 不再被驱动，它就不会再执行。如果一个 future 被 drop 掉（请记住，future 只是一个普通的 Rust 对象），那么它就永远无法再取得任何进展，也就被取消了。
 
-Cancellation can be initiated in a few ways:
+取消可以通过以下几种方式发起：
 
-- By simply dropping a future (if you own it).
-- Calling [`abort`](https://docs.rs/tokio/latest/tokio/task/struct.JoinHandle.html#method.abort) on a task's 'JoinHandle' (or an `AbortHandle`).
-- Via a [`CancellationToken`](https://docs.rs/tokio-util/latest/tokio_util/sync/struct.CancellationToken.html) (which requires the future being canceled to notice the token and cooperatively cancel itself).
-- Implicitly, by a function or macro like [`select`](https://docs.rs/tokio/latest/tokio/macro.select.html).
+- 直接 drop 一个 future（如果你拥有它的所有权）。
+- 对一个任务的 `JoinHandle`（或 `AbortHandle`）调用 [`abort`](https://docs.rs/tokio/latest/tokio/task/struct.JoinHandle.html#method.abort)。
+- 通过 [`CancellationToken`](https://docs.rs/tokio-util/latest/tokio_util/sync/struct.CancellationToken.html)（这要求被取消的 future 注意到该令牌并自行协作地取消自己）。
+- 隐式地，通过类似 [`select`](https://docs.rs/tokio/latest/tokio/macro.select.html) 的函数或宏。
 
-The middle two are specific to Tokio, though most runtimes provide similar facilities. Using a `CancellationToken` requires cooperation of the future being canceled, but the others do not. In these other cases, the canceled future will get no notification of cancellation and no opportunity to clean up (besides its destructor). Note that even if a future has a cancellation token, it can still be canceled via the other methods which won't trigger the cancellation token.
+中间两种方式是 Tokio 特有的，不过大多数运行时都提供了类似的机制。使用 `CancellationToken` 需要被取消的 future 予以配合，而其他方式则不需要。在这些其他情况下，被取消的 future 不会收到任何取消通知，也没有机会进行清理（除了它的析构函数）。注意，即使一个 future 拥有取消令牌，它仍然可能通过其他方式被取消，而这些方式不会触发取消令牌。
 
-From the perspective of writing async code (in async functions, blocks, futures, etc.), the code might stop executing at any `await` (including hidden ones in macros) and never start again. In order for your code to be correct (specifically to be *cancellation safe*), it must work correctly whether it completes normally or whether it terminates at any await point[^cfThreads].
+从编写异步代码（在异步函数、块、future 等）的角度来看，代码可能停在任何 `await` 点（包括宏中隐藏的 await 点）上，并且再也不继续执行。为了让你的代码正确（具体来说就是做到*取消安全*（*cancellation safe*）），无论它是正常完成，还是在任意一个 await 点终止，都必须正确运行[^cfThreads]。
 
 ```rust,norun
 async fn some_function(input: Option<Input>) {
     let Some(input) = input else {
-        return;           // Might terminate here (`return`).
+        return;           // 可能在这里终止 (`return`).
     };
 
-    let x = foo(input)?;  // Might terminate here (`?`).
+    let x = foo(input)?;  // 可能在这里终止 (`?`).
 
-    let y = bar(x).await; // Might terminate here (`await`).
+    let y = bar(x).await; // 可能在这里终止 (`await`).
 
     // ...
 
-    //                       Might terminate here (implicit return).
+    //                       可能在这里终止 (隐式 return).
 }
 ```
 
-An example of how this can go wrong is if an async function reads data into an internal buffer, then awaits the next datum. If reading the data is destructive (i.e., cannot be re-read from the original source) and the async function is canceled, then the internal buffer will be dropped, and the data in it will be lost. It is important to consider how a future and any data it touches will be impacted by canceling the future, restarting the future, or starting a new future which touches the same data.
+举一个可能出问题的例子：假设一个异步函数将数据读入一个内部缓冲区，然后 await 下一个数据。如果读取数据是破坏性的（即无法从原始来源重新读取），而该异步函数又被取消了，那么内部缓冲区就会被 drop，其中的数据也会随之丢失。重要的是要考虑：取消一个 future、重启该 future，或者启动一个触及相同数据的全新 future，会对这个 future 及其涉及的任何数据产生怎样的影响。
 
-We'll be coming back to cancellation and cancellation safety a few times in this guide, and there is a whole [chapter]() on the topic in the reference section.
+在本指南中，我们会多次回到取消和取消安全这个话题，并且在参考部分有一整[章]()专门讨论这个主题。
 
-[^cfThreads]: It is interesting to compare cancellation in async programming with canceling threads. Canceling a thread is possible (e.g., using `pthread_cancel` in C, there is no direct way to do this in Rust), but it is almost always a very, very bad idea since the thread being canceled can terminate anywhere. In contrast, canceling an async task can only happen at an await point. As a consequence, it is very rare to cancel an OS thread without terminating the whole process and so as a programmer, you generally don't worry about this happening. In async Rust however, cancellation is definitely something which *can* happen. We'll be discussing how to deal with that as we go along.
+[^cfThreads]: 将异步编程中的取消与取消线程做一个比较会很有意思。取消一个线程是可能的（例如在 C 中使用 `pthread_cancel`，Rust 中没有直接的方法），但这几乎总是一个非常非常糟糕的主意，因为被取消的线程可能在任何地方终止。相比之下，取消一个异步任务只能在 await 点发生。因此，在不终止整个进程的情况下去取消一个操作系统线程是非常罕见的，作为程序员，你通常不必担心这种情况发生。然而，在异步 Rust 中，取消确实是*可能*发生的事情。我们会在后续内容中讨论如何应对它。
 
-## Async blocks
+## 异步块
 
-A regular block (`{ ... }`) groups code together in the source and creates a scope of encapsulation for names. At runtime, the block is executed in order and evaluates to the value of its last expression (or the unit type (`()`) if there is no trailing expression).
+一个普通的块（`{ ... }`）在源代码中将代码组织在一起，并为名称创建一个封装作用域。在运行时，块按顺序执行，并求值为其最后一个表达式的值（如果没有尾随表达式，则求值为单元类型 `()`）。
 
-Similarly to async functions, an async block is a deferred version of a regular block. An async block scopes code and names together, but at runtime it is not immediately executed and evaluates to a future. To execute the block and obtain the result, it must be `await`ed. E.g.:
+与异步函数类似，异步块是普通块的延迟执行版本。异步块将代码和名称组织在同一作用域中，但在运行时它不会立即执行，而是求值为一个 future。要执行该块并获取结果，必须对它进行 `await`。例如：
 
 ```rust,norun
 let s1 = {
@@ -87,11 +87,11 @@ let s2 = async {
 };
 ```
 
-If we were to execute this snippet, `s1` would be a string which could be printed, but `s2` would be a future; `question()` would not have been called. To print `s2`, we first have to `s2.await`.
+如果我们执行这段代码，`s1` 会是一个可以打印的字符串，但 `s2` 会是一个 future；`question()` 并不会被调用。要打印 `s2`，我们首先需要 `s2.await`。
 
-An async block is the simplest way to start an async context and create a future. It is commonly used to create small futures which are only used in one place.
+异步块是启动异步上下文并创建 future 的最简单方式。它常被用于创建只在某处使用一次的小型 future。
 
-Unfortunately, control flow with async blocks is a little quirky. Because an async block creates a future rather than straightforwardly executing, it behaves more like a function than a regular block with respect to control flow. `break` and `continue` cannot go 'through' an async block like they can with regular blocks; instead you have to use `return`:
+遗憾的是，异步块的控制流有些古怪。因为异步块创建的是一个 future，而不是直接执行，所以它在控制流方面的行为更像是一个函数，而不是一个普通的块。`break` 和 `continue` 无法像在普通块中那样"穿透"异步块；你必须改用 `return`：
 
 ```rust,norun
 loop {
@@ -107,74 +107,71 @@ loop {
             // not ok
             // continue;
 
-            // ok - continues with the next execution of the `loop`, though note that if there was
-            // code in the loop after the async block that would be executed.
+            // ok - 继续执行 `loop` 的下一次循环，但请注意，如果异步块之后
+            // 还有代码，那些代码会先被执行。
+
             return;
         }
     }.await
 }
 ```
 
-To implement `break` you would need to test the value of the block (a common idiom is to use [`ControlFlow`](https://doc.rust-lang.org/std/ops/enum.ControlFlow.html) for the value of the block, which also allows use of `?`).
+要实现 `break`，你需要检查该块的值（一种常见的惯用法是用 [`ControlFlow`](https://doc.rust-lang.org/std/ops/enum.ControlFlow.html) 作为块的值，也允许使用 `?`）。
 
-Likewise, `?` inside an async block will terminate execution of the future in the presence of an error, causing the `await`ed block to take the value of the error, but won't exit the surrounding function (like `?` in a regular block would). You'll need another `?` after `await` for that:
+同样，异步块内的 `?` 在遇到错误时会终止该 future 的执行，使得被 `await` 的块取到该错误的值，但不会退出外层函数（不像普通块中的 `?` 那样）。为此，你需要在 `await` 之后再加一个 `?`：
 
 ```rust,norun
 async {
-    let x = foo()?;   // This `?` only exits the async block, not the surrounding function.
+    let x = foo()?;   // 这个 `?` 只会退出异步块，而不会退出外层函数。
+
     consume(x);
     Ok(())
 }.await?
 ```
 
-Annoyingly, this often confuses the compiler since (unlike functions) the 'return' type of an async block is not explicitly stated. You'll probably need to add some type annotations on variables or use turbofished types to make this work, e.g., `Ok::<_, MyError>(())` instead of `Ok(())` in the above example.
+令人烦恼的是，这常常会让编译器感到困惑，因为（与函数不同）异步块的"返回"类型并没有被显式声明。你可能需要为变量添加一些类型标注，或者使用 turbofish 语法来使其工作，例如在上面的例子中用 `Ok::<_, MyError>(())` 代替 `Ok(())`。
 
-A function which returns an async block is pretty similar to an async function. Writing `async fn foo() -> ... { ... }` is roughly equivalent to `fn foo() -> ... { async { ... } }`. In fact, from the caller's perspective they are equivalent, and changing from one form to the other is not a breaking change. Furthermore, you can override one with the other when implementing an async trait (see below). However, you do have to adjust the type, making the `Future` explicit in the async block version: `async fn foo() -> Foo` becomes `fn foo() -> impl Future<Output = Foo>` (you might also need to make other bounds explicit, e.g., `Send` and `'static`).
+一个返回异步块的函数与异步函数非常相似。写 `async fn foo() -> ... { ... }` 大致等价于 `fn foo() -> ... { async { ... } }`。事实上，从调用者的角度来看它们是等价的，从一种形式改为另一种形式并不构成破坏性变更。此外，在实现异步 trait 时，你可以用一种形式覆盖另一种形式（见下文）。不过，你确实需要调整类型，在异步块版本中显式写出 `Future`：`async fn foo() -> Foo` 变为 `fn foo() -> impl Future<Output = Foo>`（你可能还需要显式标注其他约束，例如 `Send` 和 `'static`）。
 
-You would usually prefer the async function version since it is simpler and clearer. However, the async block version is more flexible since you can execute some code when the function is called (by writing it outside the async block) and some code when the result is awaited (the code inside the async block).
+通常你会更倾向于使用异步函数版本，因为它更简单清晰。然而，异步块版本更加灵活，因为你可以在函数被调用时执行一些代码（写在异步块外），并在结果被 await 时执行另一些代码（写在异步块内的代码）。
 
+## 异步闭包
 
-## Async closures
+- 闭包
+  - 即将推出 (https://github.com/rust-lang/rust/pull/132706, https://blog.rust-lang.org/inside-rust/2024/08/09/async-closures-call-for-testing.html)
+  - 闭包中的异步块 vs 异步闭包
 
-- closures
-  - coming soon (https://github.com/rust-lang/rust/pull/132706, https://blog.rust-lang.org/inside-rust/2024/08/09/async-closures-call-for-testing.html)
-  - async blocks in closures vs async closures
+## 生命周期与借用
 
-
-## Lifetimes and borrowing
-
-- Mentioned the static lifetime above
-- Lifetime bounds on futures (`Future + '_`, etc.)
-- Borrowing across await points
-- I don't know, I'm sure there are more lifetime issues with async functions ...
+- 上面提到了静态生命周期（'static）
+- future 上的生命周期约束（`Future + '_` 等）
+- 跨越 await 点的借用
+- 我也不太确定，异步函数中肯定还有更多的生命周期问题……
 
 
-## `Send + 'static` bounds on futures
+## Future 上的 `Send + 'static` 约束
 
-- Why they're there, multi-threaded runtimes
-- spawn local to avoid them
-- What makes an async fn `Send + 'static` and how to fix bugs with it
+- 它们存在的原因，多线程运行时
+- 使用 spawn local 来避免这些约束
+- 是什么让一个异步函数成为 `Send + 'static`，以及如何修复相关 bug
 
+## 异步 trait
 
-## Async traits
-
-- syntax
-  - The `Send + 'static` issue and working around it
+- 语法
+  - `Send + 'static` 问题及其解决办法
     - trait_variant
-    - explicit future
-    - return type notation (https://blog.rust-lang.org/inside-rust/2024/09/26/rtn-call-for-testing.html)
-- overriding
-  - future vs async notation for methods
-- object safety
-- capture rules (https://blog.rust-lang.org/2024/09/05/impl-trait-capture-rules.html)
-- history and async-trait crate
+    - 显式 future
+    - [返回类型表示法（return type notation）](https://blog.rust-lang.org/inside-rust/2024/09/26/rtn-call-for-testing.html)
+- 覆盖
+  - 方法中 future 表示法与 async 表示法的对比
+- 对象安全（object safety）
+- 捕获规则 (https://blog.rust-lang.org/2024/09/05/impl-trait-capture-rules.html)
+- 历史与 async-trait crate
 
+## 递归
 
-## Recursion
-
-- Allowed (relatively new), but requires some explicit boxing
-  - forward reference to futures, pinning
-  - https://rust-lang.github.io/async-book/07_workarounds/04_recursion.html
-  - https://blog.rust-lang.org/2024/03/21/Rust-1.77.0.html#support-for-recursion-in-async-fn
-  - async-recursion macro (https://docs.rs/async-recursion/latest/async_recursion/)
-
+- 允许（相对较新的特性），但需要显式地进行装箱（boxing）
+  - 前向引用 future、pinning
+  - [04_recursion](https://rust-lang.github.io/async-book/07_workarounds/04_recursion.html)
+  - [support-for-recursion-in-async-fn](https://blog.rust-lang.org/2024/03/21/Rust-1.77.0.html#support-for-recursion-in-async-fn)
+  - [async-recursion 宏](https://docs.rs/async-recursion/latest/async_recursion/)

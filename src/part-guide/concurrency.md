@@ -1,18 +1,18 @@
-# Concurrent programming
+# 并发编程
 
-The goal of this chapter is to give you a high-level idea of how async concurrency works and how it is different from concurrency with threads. I think it is important to have a good mental model of what is going on before getting in to the practicalities, but if you're the kind of person who likes to see some real code first, you might like to read the next chapter or two and then come back to this one.
+本章的目标是让你从宏观上了解异步并发的工作原理，以及它与基于线程的并发有何不同。我认为在深入实践细节之前，对底层机制建立一个良好的心智模型很重要。但如果你是那种喜欢先看实际代码的人，可以先阅读接下来的一两章，然后再回到本章。
 
-We'll start with some motivation, then cover [sequential programming](#sequential-execution), [programming with threads or processes](#processes-and-threads), and then [async programming](#async-programming). The chapter finishes with a section on [concurrency and parallelism](#concurrency-and-parallelism).
+我们将从一些动机出发，然后依次介绍[顺序编程](#sequential-execution)、[使用线程或进程编程](#processes-and-threads)，以及[异步编程](#async-programming)。本章最后会讨论[并发与并行](#concurrency-and-parallelism)。
 
-Users want their computers to do multiple things. Sometimes users want to do those things at the same time (e.g., be listening to a music app at the same time as typing in their editor). Sometimes doing multiple tasks at the same time is more efficient (e.g., getting some work done in the editor while a large file downloads). Sometimes there are multiple users wanting to use a single computer at the same time (e.g., multiple clients connected to a server).
+用户希望他们的计算机能同时处理多件事情。有时候用户希望同时做这些事情（例如：一边听音乐一边在编辑器中打字）。有时候同时处理多个任务效率更高（例如：在下载大文件的同时在编辑器中完成一些工作）。有时候有多个用户想同时使用同一台计算机（例如：多个客户端连接到同一台服务器）。
 
-To give a lower-level example, a music program might need to keep playing music while the user interacts with the user interface (UI). To 'keep playing music', it might need to stream music data from the server, process that data from one format to another, and send the processed data to the computer's audio system via the operating system (OS). For the user, it might need to send and receive data or commands to the server in response to the user instructions, it might need to send signals to the subsystem playing music (e.g., if the user changes track or pauses), it might need to update the graphical display (e.g., highlighting a button or changing the track name), and it must keep the mouse cursor or text inputs responsive while doing all of the above.
+举一个更底层的例子，音乐播放器可能需要用户在与用户界面（UI）交互的同时持续播放音乐。为了"持续播放音乐"，它可能需要从服务器流式传输音乐数据，将数据从一种格式处理为另一种格式，然后通过操作系统（OS）将处理后的数据发送到计算机的音频系统。为了响应用户操作，它可能需要向服务器发送和接收数据或命令，可能需要向播放音乐的子系统发送信号（例如：用户切换曲目或暂停时），可能需要更新图形显示（例如：高亮某个按钮或更改曲目名称），并且在完成上述所有操作的同时，还必须保持鼠标光标或文本输入的响应性。
 
-Doing multiple things at once (or appearing to do so) is called concurrency. Programs (in conjunction with the OS) must manage their concurrency and there are many ways to do that. We'll describe some of those ways in this chapter, but we'll start with purely sequential code, i.e., no concurrency at all.
+同时做多件事（或看起来在同时做多件事）被称为并发。程序（配合操作系统）必须管理其并发性，实现方式有很多种。我们将在本章中介绍其中一些方式，但我们先从纯粹的顺序代码开始，也就是完全没有并发。
 
-## Sequential execution
+## 顺序执行
 
-The default mode of execution in most programming languages (including Rust) is sequential execution.
+大多数编程语言（包括 Rust）的默认执行模式是顺序执行。
 
 ```
 do_a_thing();
@@ -20,74 +20,81 @@ println!("hello!");
 do_another_thing();
 ```
 
-Each statement is completed before the next one starts[^obs1]. Nothing happens in between those statements[^obs2]. This might sound trivial but it is a really useful property for reasoning about our code. However, it also means we waste a lot of time. In the above example, while we're waiting for `println!("hello!")` to happen, we could have executed `do_another_thing()`. Perhaps we could even have executed all three statements at the same time.
+每条语句在下一条开始之前完成执行[^obs1]。在这些语句之间不会发生任何事情[^obs2]。这听起来可能是理所当然的，但对于分析我们的代码来说，这是一个非常有用的性质。然而，这也意味着我们浪费了大量时间。在上面的例子中，当我们在等待 `println!("hello!")` 执行时，本可以执行 `do_another_thing()`。甚至有可能同时执行这三条语句。
 
-Whenever IO[^io-def] happens (printing using `println!` is IO - it is outputting text to the console via a call to the OS), the program will wait for the IO to complete[^io-complete] before executing the next statement. Waiting for IO to complete before continuing with execution *blocks* the program from making other progress. Blocking IO is the easiest kind of IO to use, implement, and reason about, but it is also the least efficient - in a sequential world, the program can do nothing while it waits for the IO to complete.
+每当发生 IO[^io-def] 时（使用 `println!` 打印就是 IO——它通过调用操作系统向控制台输出文本），程序会等待 IO 完成[^io-complete] 后才执行下一条语句。在继续执行之前等待 IO 完成，会*阻塞*程序使其无法进行其他工作。阻塞式 IO 是最易使用、实现和理解的 IO 类型，但它也是效率最低的——在顺序执行的世界里，程序在等待 IO 完成时什么也做不了。
 
-[^obs1]: This isn't really true: modern compilers and CPUs will reorganize your code and run it any order they like. Sequential statements are likely to overlap in many different ways. However, this should never be *observable* to the program itself or its users.
-[^obs2]: This isn't true either: even when one program is purely sequential, other programs might be running at the same time; more on this in the next section.
-[^io-def]: IO is an acronym of input/output. It means any communication from the program to the world outside the program. That might be reading or writing to disk or the network, writing to the terminal, getting user input from a keyboard or mouse, or communicating with the OS or another program running in the system. IO is interesting in the context of concurrency because it takes several orders of magnitude longer to happen than nearly any task a program might do internally. That typically means lots of waiting, and that waiting time is an opportunity to do other work.
-[^io-complete]: Exactly when IO is complete is actually rather complicated. From the program's perspective a single IO call is complete when control is returned from the OS. This usually indicates that data has been sent to some hardware or other program, but it doesn't necessarily mean that the data has actually been written to disk or displayed to the user, etc. That might require more work in the hardware or periodic flushing of caches, or for another program to read the data. Mostly we don't need to worry about this, but it's good to be aware of.
+[^obs1]: 这并不完全正确：现代编译器和 CPU 会重新排列你的代码，并以它们喜欢的任何顺序运行。顺序语句可能以多种不同方式重叠执行。然而，这种重排对程序本身或其用户来说永远不应该是*可观察到的*。
 
-## Processes and threads
+[^obs2]: 这也不完全正确：即使一个程序是纯粹顺序执行的，其他程序也可能同时在运行；下一节会详细讨论。
 
-Processes and threads are concepts which are provided by the operating system to provide concurrency. There is one process per executable, so supporting multiple processes means a computer can run multiple programs[^proc-program] concurrently; there can be multiple threads per process, which means there can also be concurrency *within* a process.
+[^io-def]: IO 是输入/输出（input/output）的缩写。它指的是程序与外部世界之间的任何通信。这可能是对磁盘或网络的读写、向终端写入、从键盘或鼠标获取用户输入，或与操作系统或系统中运行的其他程序通信。在并发的情境下，IO 之所以值得关注，是因为它所花费的时间比程序内部执行的几乎所有任务都要高出几个数量级。这通常意味着大量的等待，而这些等待时间正是做其他工作的机会。
 
-There are many small differences in the way that processes and threads are handled. The most important difference is that memory is shared between threads but not between processes[^shmem]. That means that communication between processes happens by some kind of message passing, similar to communicating between programs running on different computers. From a program's perspective, the single process is their whole world; creating new processes means running new programs. Creating new threads, however, is just part of the program's regular execution.
+[^io-complete]: IO 何时算完成实际上相当复杂。从程序的角度来看，当控制权从操作系统返回时，一次 IO 调用就算完成了。这通常表示数据已发送到某个硬件或其他程序，但不一定意味着数据已经真正写入磁盘或显示给用户。这可能需要硬件做更多的工作或定期刷新缓存，或者需要另一个程序来读取数据。大多数情况下我们不需要担心这个，但了解一下是有好处的。
 
-Because of these distinctions between processes and threads, they feel very different to a programmer. But from the OS's perspective they are very similar and we'll discuss their properties as if they were a single concept. We'll talk about threads, but unless we note otherwise, you should understand that to mean 'threads or processes'.
+## 进程与线程
 
-The OS is responsible for *scheduling* threads, which means it decides when threads run and for how long. Most modern computers have multiple cores, so they can run multiple threads at literally the same time. However, it is common to have many more threads than cores, so the OS will run each thread for a small amount of time and then pause it and run a different thread for some time[^sched]. When multiple threads are run on a single core in this fashion, it is called *interleaving* or *time-slicing*. Since the OS chooses when to pause a thread's execution, it is called *pre-emptive multitasking* (multitasking here just means running multiple threads at the same time); the OS *pre-empts* execution of a thread (or more verbosely, the OS pre-emptively pauses execution. It is pre-emptive because the OS is pausing the thread to make time for another thread, before the first thread would otherwise pause, to ensure that the second thread can execute before it becomes a problem that it can't).
+进程和线程是操作系统提供的用于实现并发的概念。每个可执行程序对应一个进程，因此支持多个进程意味着计算机可以并发运行多个程序[^proc-program]；每个进程可以有多个线程，这意味着在进程*内部*也可以实现并发。
 
-Let's look at IO again. What happens when a thread blocks waiting for IO? In a system with threads, then the OS will pause the thread (it's just going to be waiting in any case) and wake it up again when the IO is complete[^busywait]. Depending on the scheduling algorithm, it might take some time after the IO completes until the OS wakes up the thread waiting for IO, since the OS might wait for other threads to get some work done. So now things are much more efficient: while one thread waits for IO, another thread (or more likely, many threads due to multitasking) can make progress. But, from the perspective of the thread doing IO, things are still sequential - it waits for the IO to finish before starting the next operation.
+进程和线程在处理方式上有许多细微的差异。最重要的区别在于：线程之间共享内存，而进程之间不共享内存[^shmem]。这意味着进程之间的通信需要通过某种消息传递来完成，类似于在不同计算机上运行的程序之间的通信。从程序的角度来看，单个进程就是它的整个世界；创建新进程意味着运行新程序。而创建新线程则只是程序正常执行的一部分。
 
-A thread can also choose to pause itself by calling a `sleep` function, usually with a timeout. In this case the OS pauses the thread at the threads own request. Similar to pausing due to pre-emption or IO, the OS will wake the thread up again later (after the timeout) to continue execution.
+由于进程和线程之间的这些区别，它们对程序员来说感觉很不一样。但从操作系统的角度来看，它们非常相似，我们将把它们作为一个统一的概念来讨论它们的属性。除非另有说明，当我们说到"线程"的时候，你应该知道这指的是"线程或进程"。
 
-When an OS pauses one thread and starts another (for any reason), it is called *context switching*. The context being switched includes the registers, operating system records, and the contents of many caches. That's a non-trivial amount of work. Together with the transfer of control to the OS and back to a thread, and the costs of working with stale caches, context switching is an expensive operation.
+操作系统负责*调度*线程，即决定线程何时运行以及运行多长时间。大多数现代计算机有多个核心，因此可以真正同时运行多个线程。然而，线程数量通常远多于核心数量，所以操作系统会让每个线程运行一小段时间，然后暂停它并运行另一个线程一段时间[^sched]。当多个线程以这种方式在单个核心上运行时，这被称为*交错执行*（interleaving）或*时间切片*（time-slicing）。由于由操作系统选择何时暂停线程的执行，这被称为*抢占式多任务*（pre-emptive multitasking）（这里的"多任务"就是指同时运行多个线程）；操作系统会*抢占*线程的执行（或者更详细地说，操作系统会抢占式地暂停执行。之所以称为"抢占式"，是因为操作系统在第一个线程本会自行暂停之前就暂停了它，为另一个线程腾出时间，以确保第二个线程能在“它无法执行”成为问题之前得以执行）。
 
-Finally, note that some hardware or OSs do not support processes or threads, this is more likely in the embedded world.
+让我们再次看看 IO。当一个线程因等待 IO 而阻塞时会发生什么？在有线程的系统中，操作系统会暂停该线程（反正它也只是在等待），并在 IO 完成时再次唤醒它[^busywait]。根据调度算法的不同，IO 完成后可能还需要一些时间操作系统才会唤醒等待 IO 的线程，因为操作系统可能会先让其他线程完成一些工作。所以现在效率提高了很多：当一个线程等待 IO 时，另一个线程（由于多任务，更可能是多个线程）可以继续推进。但从执行 IO 的线程的角度来看，事情仍然是顺序的——它会等待 IO 完成后才开始下一个操作。
 
-[^proc-program]: from the user's perspective, a single program may include multiple processes, but from the OS's perspective each process is a separate program.
-[^shmem]: Some OSs do support sharing memory between processes, but using it requires special treatment and most memory is not shared.
-[^sched]: Exactly how the OS chooses which thread to run and for how long (and on which core), is a key part of scheduling. There are many options, both high-level strategies and options to configure those strategies. Making good choices here is crucial for good performance, but it is complicated and we won't dig into it here.
-[^busywait]: There's another option which is that the thread can *busy wait* by just spinning in a loop until the IO is finished. This is not very efficient since other threads won't get to run and is uncommon in most modern systems. You may come across it in the implementations of locks or in very simple embedded systems.
+线程也可以通过调用 `sleep` 函数（通常带超时参数）来选择自行暂停。在这种情况下，操作系统是应线程自身请求而暂停它。与因抢占或 IO 而暂停类似，操作系统稍后（超时之后）会再次唤醒线程以继续执行。
 
+当操作系统暂停一个线程并启动另一个线程时（无论出于何种原因），这被称为*上下文切换*（context switching）。被切换的上下文包括寄存器、操作系统记录以及许多缓存的内容。这是相当可观的工作量。加上将控制权转移到操作系统再返回线程的开销，以及使用过期缓存带来的代价，上下文切换是一项昂贵的操作。
 
-## Async programming
+最后，请注意某些硬件或操作系统不支持进程或线程，这在嵌入式领域更为常见。
 
-Async programming is a kind of concurrency with the same high-level goals as concurrency with threads (do many things at the same time), but a different implementation. The two big differences between async concurrency and concurrency with threads, is that async concurrency is managed entirely within the program with no help from the OS[^threads], and that multitasking is cooperative rather than pre-emptive[^other] (we'll explain that in a minute). There are many different models of async concurrency, we'll compare them later on in the guide, but for now we'll focus only on Rust's model.
+[^proc-program]: 从用户的角度来看，一个程序可能包含多个进程；但从操作系统的角度来看，每个进程是一个独立的程序。
 
-To distinguish them from threads, we'll call a sequence of executions in async concurrency a task (they're also called *green threads*, but this sometimes has connotations of pre-emptive scheduling and implementation details like one stack per task). The way a task is executed, scheduled, and represented in memory is very different to a thread, but for a high-level intuition, it can be useful to think of tasks as just like threads, but managed entirely within the program, rather than by the OS.
+[^shmem]: 某些操作系统确实支持进程间共享内存，但使用它需要特殊处理，而且大部分内存并不共享。
 
-In an async system, there is still a scheduler which decides which task to run next (it's part of the program, not part of the OS). However, the scheduler cannot pre-empt a task. Instead a task must voluntarily give up control and allow another task to be scheduled. Because tasks must cooperate (by giving up control), this is called cooperative multitasking.
+[^sched]: 操作系统如何选择运行哪个线程、运行多长时间（以及在哪个核心上运行），是调度的一个关键部分。有许多选项，包括高层策略和配置这些策略的参数。在此做出好的选择对性能至关重要，但这很复杂，我们不会在这里深入讨论。
 
-Using cooperative rather than pre-emptive multitasking has many implications:
-
-* between points where control might be yielded, you can guarantee that code will be executed sequentially - you'll never be unexpectedly paused,
-* if a task takes a long time between yield points (e.g., by doing blocking IO or performing long-running computation), other tasks will not be able to make progress,
-* implementing a scheduler is much simpler and scheduling (and context switching) has fewer overheads.
-
-Async concurrency is much more efficient than concurrency with threads. The memory overheads are much lower and context switching is a much cheaper operation - it doesn't require handing control to the OS and back to the program and there is much less data to switch. However, there can still be some cache effects - although the OS's caches such as the [TLB](https://en.wikipedia.org/wiki/Translation_lookaside_buffer) don't need to be changed, tasks are likely to operate on different parts of memory, so data required by the newly scheduled task may not be in a memory cache.
-
-Asynchronous *IO* is an alternative to blocking IO (it's sometimes called non-blocking IO). Async IO is not directly tied to async concurrency, but the two are often used together. In async IO, a program initiates IO with one system call and then can either check or be notified when the IO completes. That means the program is free to get other work done while the IO takes place. In Rust, the mechanics of async IO are handled by the async runtime (the scheduler is also part of the runtime, we'll discuss runtimes in more detail later in this book, but essentially the runtime is just a library which takes care of some of the fundamental async stuff).
-
-From the perspective of the whole system, blocking IO in a concurrent system with threads and non-blocking IO in an async concurrent system are similar. In both cases, IO takes time and other work gets done while the IO is happening:
-- With threads, the thread doing IO requests IO from the OS, the thread is paused by the OS, other threads get work done, and when the IO is done, the OS wakes up the thread so it can continue execution with the result of the IO.
-- With async, the task doing IO requests IO from the runtime, the runtime requests IO from the OS but the OS returns control to the runtime. The runtime pauses the IO task and schedules other tasks to get work done. When the IO is done, the runtime wakes up the IO task so it can continue execution with the result of the IO.
-
-The advantage of using async IO, is that the overheads are much lower so a system can support orders of magnitude more tasks than threads. That makes async concurrency particularly well-suited for tasks with lots of users which spend a lot of time waiting for IO (if they don't spend a lot of time waiting and instead do lots of CPU-bound work, then there is not so much advantage to the low-overheads because the bottleneck will be CPU and memory resources).
-
-Threads and async are not mutually exclusive: many programs use both. Some programs have parts which are better implemented using threads and parts which are better implemented using async. For example, a database server may use async techniques to manage network communication with clients, but use OS threads for computation on data. Alternatively, a program may be written only using async concurrency, but the runtime will execute tasks on multiple threads. This is necessary for a program to make use of multiple CPU cores. We'll cover the intersection of threads and async tasks in a number of places later in the book.
-
-[^threads]: We'll start our explanation assuming a program only has a single thread, but expand on that later. There will probably be other processes running on the system, but they don't really affect how async concurrency works.
-[^other]: There are some programming languages (or even libraries) which have concurrency which is managed within the program (without the OS), but with a pre-emptive scheduler rather than relying on cooperation between threads. Go is a well-known example. These systems don't require `async` and `await` notation, but have other downsides including making interop with other languages or the OS much more difficult, and having a heavyweight runtime. Very early versions of Rust had such a system, but no traces of it remained by 1.0.
+[^busywait]: 还有一种选择是，线程可以*忙等待*（busy wait），也就是一直循环空转，直到 IO 完成。这效率很低，因为其他线程无法运行，在大多数现代系统中并不常见。你可能会在锁的实现中或非常简单的嵌入式系统中遇到它。
 
 
-## Concurrency and Parallelism
+## 异步编程
 
-So far we've been talking about concurrency (doing, or appearing to do, many things at the same time), and we've hinted at parallelism (the presence of multiple CPU cores which facilitates literally doing many things at the same time). These terms are sometimes used interchangeably, but they are distinct concepts. In this section, we'll try to precisely define these terms and the difference between them. I'll use simple pseudo-code to illustrate things.
+异步编程是一种并发模型，它与基于线程的并发有着相同的高层目标（同时做多件事），但实现方式不同。异步并发与线程并发之间的两大区别是：异步并发完全由程序自身管理，不需要操作系统的帮助[^threads]；多任务是协作式而非抢占式的[^other]（我们稍后解释）。异步并发有许多不同的模型，我们将在本指南后面进行比较，但现在我们只关注 Rust 的模型。
 
-Imagine a single task broken into a bunch of sub-tasks:
+为了与线程区分开来，我们将异步并发中的一系列执行称为任务（task）（它们也被称为*绿色线程*（green threads），但这个说法有时会暗示抢占式调度以及每个任务一个栈等实现细节）。任务的执行方式、调度方式和在内存中的表示都与线程截然不同，但从高层次的直观理解来说，可以把任务想象成线程，只不过它们完全由程序内部管理，而不是由操作系统管理。
+
+在异步系统中，仍然有一个调度器来决定下一个运行哪个任务（它是程序的一部分，而不是操作系统的一部分）。然而，调度器不能抢占任务。相反，任务必须自愿放弃控制权，允许调度其他任务。因为任务必须协作（通过放弃控制权），所以这被称为协作式多任务。
+
+使用协作式而非抢占式多任务会带来许多影响：
+
+* 在可能交出控制权的点之间，你可以保证代码会顺序执行——你永远不会被意外暂停。
+* 如果一个任务在两个交出点之间花费了很长时间（例如：执行阻塞式 IO 或进行长时间计算），其他任务将无法推进。
+* 实现调度器要简单得多，调度（和上下文切换）的开销也更少。
+
+异步并发比基于线程的并发效率高得多。内存开销低得多，上下文切换也是一项代价更低的操作——它不需要将控制权交给操作系统再返回程序，而且需要切换的数据也少得多。然而，仍然可能存在一些缓存效应——虽然操作系统的缓存（如 [TLB](https://en.wikipedia.org/wiki/Translation_lookaside_buffer)）不需要更改，但任务可能操作不同的内存区域，因此新调度的任务所需的数据可能不在内存缓存中。
+
+异步 *IO* 是阻塞式 IO 的替代方案（有时被称为非阻塞式 IO）。异步 IO 并不直接与异步并发绑定，但两者经常一起使用。在异步 IO 中，程序通过一次系统调用发起 IO，然后可以检查或被通知 IO 是否完成。这意味着程序可以在 IO 进行期间自由地完成其他工作。在 Rust 中，异步 IO 的机制由异步运行时处理（调度器也是运行时的一部分，我们将在本书后面更详细地讨论运行时，但本质上运行时只是一个负责处理一些基础异步事务的库）。
+
+从整个系统的角度来看，线程并发系统中的阻塞式 IO 和异步并发系统中的非阻塞式 IO 是相似的。在这两种情况下，IO 都需要时间，而在 IO 进行期间其他工作也在完成：
+- 在线程模型中，执行 IO 的线程向操作系统请求 IO，该线程被操作系统暂停，其他线程继续工作，当 IO 完成后，操作系统唤醒该线程，使其可以使用 IO 的结果继续执行。
+- 在异步模型中，执行 IO 的任务向运行时请求 IO，运行时向操作系统请求 IO，但操作系统将控制权返回给运行时。运行时暂停 IO 任务，并调度其他任务来完成工作。当 IO 完成后，运行时唤醒 IO 任务，使其可以使用 IO 的结果继续执行。
+
+使用异步 IO 的优势在于开销低得多，因此系统可以支持比线程多几个数量级的任务。这使得异步并发特别适合有大量用户、且大量时间花在等待 IO 上的场景（如果任务不需要大量等待，而是做大量 CPU 密集型工作，那么低开销的优势就不太明显，因为瓶颈会在 CPU 和内存资源上）。
+
+线程和异步并不互斥：许多程序同时使用两者。有些程序的某些部分用线程实现更好，而另一些部分用异步实现更好。例如，数据库服务器可能使用异步技术来管理与客户端的网络通信，但使用操作系统线程进行数据计算。另一种情况是，程序可能仅使用异步并发编写，但运行时会在多个线程上执行任务。这是程序利用多个 CPU 核心所必需的。我们将在本书后面多个地方讨论线程与异步任务的交叉。
+
+[^threads]: 我们将假设程序只有一个线程来开始解释，但稍后会扩展到多线程。系统中可能还有其他进程在运行，但它们并不真正影响异步并发的工作方式。
+
+[^other]: 有些编程语言（甚至库）拥有由程序内部管理（不依赖操作系统）的并发，但使用抢占式调度器而非依赖线程之间的协作。Go 是一个著名的例子。这些系统不需要 `async` 和 `await` 语法，但有其他缺点，包括使与其他语言或操作系统的互操作变得更加困难，以及需要重量级运行时。Rust 的早期版本曾有这样一个系统，但到 1.0 时已无任何痕迹。
+
+
+## 并发与并行
+
+到目前为止，我们一直在讨论并发（同时做、或看起来在同时做多件事），并且暗示了并行（拥有多个 CPU 核心，从而真正同时做多件事）。这些术语有时会被互换使用，但它们是不同的概念。在本节中，我们将尝试精确地定义这些术语及其区别。我会用简单的伪代码来说明。
+
+想象一个任务被拆分为一系列子任务：
 
 ```
 task1 {
@@ -98,9 +105,9 @@ task1 {
 }
 ```
 
-Let's pretend to be a processor which executes such pseudocode. The obvious way to do so is to first do `subTask1-1` then do `subTask1-2` and so on until we've completed all sub-tasks. This is sequential execution.
+让我们假装自己是一个执行这类伪代码的处理器。最显然的方式是先执行 `subTask1-1`，然后执行 `subTask1-2`，以此类推，直到完成所有子任务。这就是顺序执行。
 
-Now consider multiple tasks. How might we execute them? We might start one task, do all the sub-tasks until the whole task is complete, then start on the next. The two tasks are being executed sequentially (and the sub-tasks within each task are also being executed sequentially). Looking at just the sub-tasks, you'd execute them like this:
+现在考虑多个任务。我们该如何执行它们？我们可以从第一个任务开始，执行所有子任务直到整个任务完成，然后再开始下一个。两个任务是顺序执行的（每个任务内的子任务也是顺序执行的）。只看子任务的话，执行方式如下：
 
 ```
 subTask1-1()
@@ -114,8 +121,7 @@ subTask2-100()
 
 ```
 
-
-Alternatively, you could do `subTask1`, then put `task1` aside (remembering how far you got) and pick up the next task and do the first sub-task from that one, then go back to `task1` to do a sub-task. The two tasks would be interleaved, we call this concurrent execution of the two tasks. It might look like:
+另一种方式是，先做 `subTask1`，然后把 `task1` 放到一边（记住进度），接着拿起下一个任务做其中的第一个子任务，再回到 `task1` 做一个子任务。两个任务就这样交替执行，我们称这为两个任务的并发执行。可能看起来像这样：
 
 ```
 subTask1-1()
@@ -128,13 +134,13 @@ subTask2-100()
 
 ```
 
-Unless one task can observe the results or side-effects of a different task, then from the task's perspective, the sub-tasks are still being executed sequentially.
+除非一个任务能观察到另一个任务的结果或副作用，否则从任务自身的角度来看，子任务仍然是在顺序执行的。
 
-There's no reason we have to limit ourselves to two tasks, we could interleave any number and do so in any order.
+没有理由将我们自己限制在两个任务，我们可以交替执行任意数量的任务，并以任何顺序进行。
 
-Note that no matter how much concurrency we add, the whole job takes the same amount of time to complete (in fact it might take longer with more concurrency due to the overheads of context switching between them). However, for a given sub-task, we might get it finished earlier than in the purely sequential execution (for a user, this might feel more responsive).
+注意，无论我们增加多少并发，整个工作完成所需的总时间是一样的（实际上，由于任务间上下文切换的开销，更多的并发可能反而花更长时间）。但是，对于某个特定的子任务，我们可能比纯顺序执行更早完成它（对用户来说，这可能感觉更响应）。
 
-Now, imagine it's not just you processing the tasks, you've got some processor friends to help you out. You can work on tasks at the same time and get the work done faster! This is *parallel* execution (which is also concurrent). You might execute the sub-tasks like:
+现在，想象一下不仅你在处理任务，你还有一些处理器朋友来帮忙。你们可以同时处理任务，更快地完成工作！这就是*并行*执行（同时也是并发的）。你可能会这样执行子任务：
 
 ```
 Processor 1           Processor 2
@@ -145,35 +151,36 @@ subTask1-2()          subTask2-2()
 subTask1-100()        subTask2-100()
 ```
 
-If there are more than two processors, we can process even more tasks in parallel. We could also do some interleaving of tasks on each processor or sharing of tasks between processors.
+如果有两个以上的处理器，我们可以并行处理更多任务。我们还可以在每个处理器上做一些任务交替，或者在处理器之间共享任务。
 
-In real code, things are a bit more complicated. Some sub-tasks (e.g., IO) don't require a processor to actively participate, they just need starting and some time later collecting the results. And some sub-tasks might require the results (or side-effects) of a sub-task from a different task in order to make progress (synchronization). Both these scenarios limit the effective ways that tasks can be concurrently executed and that, together with ensuring some concept of fairness, is why scheduling is important.
+在真实代码中，情况会更复杂一些。某些子任务（例如 IO）不需要处理器主动参与，只需要启动它们，然后在一段时间后收集结果。而某些子任务可能需要来自另一个任务中某个子任务的结果（或副作用）才能继续推进（同步）。这两种场景都限制了任务并发执行的有效方式，再加上需要确保某种公平性，这正是调度如此重要的原因。
 
 
-### Enough silly examples, let's try to define things properly
+### 好了，别再举这些无意义的例子了，让我们正式定义这些概念
 
-Concurrency is about ordering of computations and parallelism is about the mode of execution.
+并发关注的是计算的顺序，而并行关注的是执行的方式。
 
-Given two computations, we say they are sequential (i.e., not concurrent) if we can observe that one happens before the other, or that they are concurrent if we cannot observe (or alternatively, it does not matter) that one happens before the other.
+给定两个计算，如果我们能观察到其中一个先于另一个发生，我们就说它们是顺序的（即非并发的）；如果我们无法观察到（或者说无所谓）哪个先发生，我们就说它们是并发的。
 
-Two computations happen in parallel if they are literally happening at the same time. We can think of parallelism as a resource: the more parallelism is available, the more computations can happen in a fixed period of time (assuming that computation happens at the same speed). Increasing the concurrency of a system without increasing parallelism can never make it faster (although it can make the system more responsive and it may make it feasible to implement optimizations which would otherwise be impractical).
+如果两个计算真正同时发生，它们就是并行执行的。我们可以把并行看作一种资源：可用的并行越多，在固定时间内能完成的计算就越多（假设计算速度不变）。在不增加并行的情况下增加系统的并发，永远不能使系统更快（虽然可以让系统更响应，也可能使得一些原本不切实际的优化变得可行）。
 
-To restate, two computations may happen one after the other (neither concurrent nor parallel), their execution may be interleaved on a single CPU core (concurrent, but not parallel), or they may be executed at the same time on two cores (concurrent and parallel)[^p-not-c].
+重申一下，两个计算可能一个接一个地执行（既非并发也非并行），它们的执行可能在单个 CPU 核心上交替进行（并发但不并行），或者它们可能在两个核心上同时执行（既并发又并行）[^p-not-c]。
 
-Another useful framing[^turon] is that concurrency is a way of organizing code and parallelism is a resource. This is a powerful statement! That concurrency is about organising code rather than executing code is important because from the perspective of the processor, concurrency without parallelism simply doesn't exist. It's particularly relevant for async concurrency because that is implemented entirely in user-side code - not only is it 'just' about organizing code, but you can easily prove that to yourself by just reading the source code. That parallelism is a resource is also useful because it reminds us that for parallelism and performance, only the number of processor cores is important, not how the code is organized with respect to concurrency (e.g., how many threads there are).
+另一种有用的表述方式[^turon]是：并发是一种组织代码的方式，而并行是一种资源。这是一个强有力的论断！并发关注的是组织代码而非执行代码，这一点很重要，因为从处理器的角度来看，没有并行的并发根本不存在。这对异步并发尤为重要，因为它完全在用户侧代码中实现——它不仅仅"只是"关于组织代码这件事，你可以通过阅读源代码轻松验证这一点。将并行视为一种资源也很有用，因为它提醒我们：对于并行性和性能，唯一重要的是处理器核心的数量，而不是代码在并发方面的组织方式（例如有多少线程）。
 
-Both threaded and async systems can offer both concurrency and parallelism. In both cases, concurrency is controlled by code (spawning threads or tasks) and parallelism is controlled by the scheduler, which is part of the OS for threads (configured by the OS's API), and part of the runtime library for async (configured by choice of runtime, how the runtime is implemented, and options that the runtime provides to client code). There is however, a practical difference due to convention and common defaults. In threaded systems, each concurrent thread is executed in parallel using as much parallelism as possible. In async systems, there is no strong default: a system may run all tasks in a single thread, it may assign multiple tasks to a single thread and lock that thread to a core (so groups of tasks execute in parallel, but within a group each task executes concurrently, but never in parallel with other tasks within the group), or tasks may be run in parallel with or without limits. For the first part of this guide, we will use the Tokio runtime which primarily supports the last model. I.e., the behavior regarding parallelism is similar to concurrency with threads. Furthermore, we'll see features in async Rust which explicitly support concurrency but not parallelism, independent of the runtime.
+线程系统和异步系统都可以提供并发和并行。在两种情况下，并发都由代码控制（生成线程或任务），而并行由调度器控制——线程的调度器是操作系统的一部分（通过操作系统的 API 配置），异步的调度器是运行时库的一部分（通过选择运行时、运行时的实现方式以及运行时提供给客户端代码的选项来配置）。然而，由于惯例和常见默认设置，两者存在实际差异。在线程系统中，每个并发线程都尽可能使用最大的并行性来并行执行。在异步系统中，没有强烈的默认行为：系统可能在单个线程中运行所有任务，可能将多个任务分配到单个线程并将该线程绑定到一个核心上（因此任务组之间是并行执行的，但组内的任务之间是并发但不并行的），或者任务可能有限制或无限制地并行运行。在本指南的第一部分，我们将使用 Tokio 运行时，它主要支持最后一种模型。也就是说，关于并行的行为与线程并发类似。此外，我们将在异步 Rust 中看到一些明确支持并发但不支持并行的特性，这些特性与运行时无关。
 
-[^p-not-c]: Can computation be parallel but not concurrent? Sort of but not really. Imagine two tasks (a and b) which consist of one sub-task each (1 and 2 belonging to a and b, respectively). By the use of synchronisation, we can't start sub-task 2 until sub-task 1 is complete and task a has to wait for sub-task 2 to complete until it is complete. Now a and b run on different processors. If we look at the tasks as black boxes, we can say they are running in parallel, but in a sense they are not concurrent because their ordering is fully determined. However, if we look at the sub-tasks we can see that they are neither parallel or concurrent.
+[^p-not-c]: 计算可以是并行但不并发的吗？某种程度上可以，但又不完全是。想象两个任务（a 和 b），每个各包含一个子任务（1 属于 a，2 属于 b）。通过使用同步，子任务 2 在子任务 1 完成之前不能开始，而任务 a 必须等待子任务 2 完成后才能完成。现在 a 和 b 运行在不同的处理器上。如果我们把任务看作黑盒，可以说它们在并行运行，但从某种意义上说它们不是并发的，因为它们的顺序是完全确定的。然而，如果我们看子任务，会发现它们既不并行也不并发。
 
-[^turon]: Which I think is due to Aaron Turon and is reflected in some of the design of Rust's standard library, e.g., in the [available_parallelism](https://doc.rust-lang.org/std/thread/fn.available_parallelism.html) function.
+[^turon]: 我认为这归功于 Aaron Turon，并体现在 Rust 标准库的一些设计中，例如 [available_parallelism](https://doc.rust-lang.org/std/thread/fn.available_parallelism.html) 函数。
 
-## Summary
 
-- There are many models of execution. We described sequential execution, threads and processes, and asynchronous programming.
-  - Threads are an abstraction provided (and scheduled) by the OS. They usually involve pre-emptive multitasking, are parallel by default, and have fairly high overheads of management and context switching.
-  - Asynchronous programming is managed by a user-space runtime. Multi-tasking is cooperative. It has lower overheads than threads, but feels a bit different to programming with threads since it uses different programming primitives (`async` and `await`, and futures, rather than first-class threads).
-- Concurrency and parallelism are different but closely related concepts.
-  - Concurrency is about ordering of computation (operations are concurrent if their order of execution cannot be observed).
-  - Parallelism is about computing on multiple processors (operations are parallel if they are literally happening at the same time).
-- Both OS threads and async programming provide concurrency and parallelism; async programming can also offer constructs for flexible or fine-grained concurrency which are not part of most operating systems' threads API.
+## 总结
+
+- 执行模型有很多种。我们介绍了顺序执行、线程和进程，以及异步编程。
+  - 线程是由操作系统提供（和调度）的抽象。它们通常使用抢占式多任务，默认是并行的，管理和上下文切换的开销较高。
+  - 异步编程由用户空间运行时管理。多任务是协作式的。它的开销比线程更低，但编程体验与线程有所不同，因为它使用不同的编程原语（`async` 和 `await` 以及 future，而非一等公民的线程）。
+- 并发和并行是不同但密切相关的概念。
+  - 并发关注的是计算的顺序（如果操作的执行顺序无法被观察到，则它们是并发的）。
+  - 并行关注的是在多个处理器上计算（如果操作真正同时发生，则它们是并行的）。
+- 操作系统线程和异步编程都提供并发和并行；异步编程还能提供灵活或细粒度并发的构造，这些是大多数操作系统的线程 API 所不具备的。

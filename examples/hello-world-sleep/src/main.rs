@@ -3,7 +3,7 @@ use tokio::time::{sleep, Duration};
 
 async fn say_hello() {
     print!("hello, ");
-    // Flush stdout so we see the effect of the above `print` immediately.
+    // 刷新 stdout，这样我们就能立即看到上面 `print` 的效果。
     stdout().flush().unwrap();
 }
 
@@ -14,7 +14,7 @@ async fn say_world() {
 #[tokio::main]
 async fn main() {
     say_hello().await;
-    // An async sleep function, puts the current task to sleep for 1s.
+    // 一个异步休眠函数, 让当前任务休眠 1s.
     sleep(Duration::from_millis(1000)).await;
     say_world().await;
 }

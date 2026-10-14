@@ -1,7 +1,7 @@
-# Navigation
+# 导航
 
-TODO Intro to navigation
+TODO 导航简介
 
-- [By topic](topics.md)
-- [FAQs]()
-- [Index](index.md)
+- [按主题](topics.md)
+- [常见问题]()
+- [索引](index.md)

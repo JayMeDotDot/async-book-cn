@@ -1,43 +1,43 @@
-# Destruction and clean-up
+# 销毁与清理
 
-- Object destruction and recap of Drop
-- General clean up requirements in software
-- Async issues
-  - Might want to do stuff async during clean up, e.g., send a final message
-  - Might need to clean up stuff which is still being used async-ly
-  - Might want to clean up when an async task completes or cancels and there is no way to catch that
-  - State of the runtime during clean-up phase (esp if we're panicking or whatever)
-  - No async Drop
+- 对象销毁以及 Drop 回顾
+- 软件中的一般性清理需求
+- 异步相关的问题
+  - 在清理期间可能需要异步地执行一些操作，例如发送最后一条消息
+  - 可能需要清理那些仍在被异步使用的内容
+  - 可能希望在异步任务完成或取消时进行清理，但又没有办法捕获该事件
+  - 清理阶段运行时的状态（尤其是当我们正在 panic 或其他异常情况下）
+  - 没有异步 Drop
     - WIP
-  - forward ref to completion io topic
+  - 前向引用 completion io 主题
 
-## Cancellation
+## 取消
 
-- How it happens (recap of more-async-await.md)
-  - drop a future
-  - cancellation token
-  - abort functions
-- What we can do about 'catching' cancellation
-  - logging or monitoring cancellation
-- How cancellation affects other futures tasks (forward ref to cancellation safety chapter, this should just be a heads-up)
+- 取消是如何发生的（回顾 more-async-await.md）
+  - 丢弃（drop）一个 future
+  - 取消令牌（cancellation token）
+  - abort 函数
+- 关于“捕获”取消我们能做些什么
+  - 记录日志或监控取消事件
+- 取消如何影响其他 future 任务（前向引用取消安全性章节，此处仅作提示）
 
-## Panicking and async
+## Panic 与异步
 
-- Propagation of panics across tasks (spawn result)
-- Panics leaving data inconsistent (tokio mutexes)
-- Calling async code when panicking (make sure you don't)
+- panic 在任务间的传播（spawn 的结果）
+- panic 导致数据处于不一致状态（tokio 的 mutex）
+- 在 panic 时调用异步代码（务必不要这么做）
 
-## Patterns for clean-up
+## 清理的模式
 
-- Avoid needing clean up (abort/restart)
-- Don't use async for cleanup and don't worry too much
-- async clean up method + dtor bomb (i.e., separate clean-up from destruction)
-- centralise/out-source clean-up in a separate task or thread or supervisor object/process
+- 避免需要进行清理（中止/重启）
+- 清理时不要使用异步，也不必过于担心
+- 异步清理方法 + 析构炸弹（即，将清理与销毁分离）
+- 将清理集中/外包到独立的任务、线程或监督者对象/进程中
 - https://tokio.rs/tokio/topics/shutdown
 
-## Why no async Drop (yet)
+## 为什么（暂时）没有异步 Drop
 
-- Note this is advanced section and not necessary to read
-- Why async Drop is hard
-- Possible solutions and there issues
-- Current status
+- 注意：本节为高级内容，非必读
+- 为什么异步 Drop 很困难
+- 可能的解决方案及其问题
+- 当前进展

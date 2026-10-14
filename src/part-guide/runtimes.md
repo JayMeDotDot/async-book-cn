@@ -1,29 +1,29 @@
-# Runtimes and runtime issues
+# 运行时与运行时相关的问题
 
-## Running async code
+## 运行异步代码
 
-- Explicit startup vs async main
-- tokio context concept
+- 显式启动 vs async main
+- tokio 上下文的概念
 - block_on
-- runtime as reflected in the code (Runtime, Handle)
-- runtime shutdown
+- 代码中体现的运行时（Runtime、Handle）
+- 运行时关闭
 
-## Threads and tasks
+## 线程与任务
 
-- default work stealing, multi-threaded
-  - revisit Send + 'static bounds
+- 默认采用工作窃取（work stealing）的多线程模式
+  - 重新审视 Send + 'static 约束
 - yield
 - spawn-local
-- spawn-blocking (recap), block-in-place
-- tokio-specific stuff on yielding to other threads, local vs global queues, etc
+- spawn-blocking（回顾）、block-in-place
+- tokio 特有的关于向其他线程让出执行权、本地队列与全局队列等内容
 
-## Configuration options
+## 配置选项
 
-- thread pool size
-- single threaded, thread per core etc.
+- 线程池大小
+- 单线程、每核心一个线程等
 
-## Alternate runtimes
+## 其他运行时
 
-- Why you'd want to use a different runtime or implement your own
-- What kind of variations exist in the high-level design
-- Forward ref to adv chapters
+- 为什么你会想要使用不同的运行时或自己实现一个
+- 高层设计中存在哪些差异
+- 前向引用进阶章节

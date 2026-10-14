@@ -1,28 +1,28 @@
-# Tools for async programming
+# 异步编程工具
 
-- Why we need specialist tools for async
-- Are there other tools to cover
+- 为什么我们需要专门的异步工具
+- 是否还有其他工具需要介绍
   - loom
 
-## Monitoring
+## 监控
 
 - [Tokio console](https://github.com/tokio-rs/console)
 
-## Tracing and logging
+## 追踪与日志
 
-- issues with async tracing
+- 异步追踪存在的问题
 - tracing crate (https://github.com/tokio-rs/tracing)
 
-## Debugging
+## 调试
 
-- Understanding async backtraces (RUST_BACKTRACE and in a debugger)
-- Techniques for debugging async code
-- Using Tokio console for debugging
-- Debugger support (WinDbg?)
+- 理解异步回溯（RUST_BACKTRACE 与调试器中的回溯）
+- 调试异步代码的技巧
+- 使用 Tokio console 进行调试
+- 调试器支持（WinDbg？）
 
-## Profiling
+## 性能分析
 
-- How async messes up flamegraphs
-- How to profile async IO
-- Getting insight into the runtime
+- 异步如何破坏火焰图
+- 如何对异步 IO 进行性能分析
+- 深入了解运行时
   - Tokio metrics

@@ -1,28 +1,28 @@
-# Topic index
+# 主题索引
 
-## Concurrency and parallelism
+## 并发与并行
 
-- [Introduction](../part-guide/concurrency.md#concurrency-and-parallelism)
-- [Running async tasks in parallel using `spawn`](../part-guide/async-await.md#spawning-tasks)
-- [Running futures concurrently using `join` and `select`](../part-guide/concurrency-primitives.md)
-- [Mixing sync and async concurrency](../part-guide/io.md#other-blocking-operations)
-
-
-## Correctness and safety
-
-- Cancellation
-  - [Introduction](../part-guide/more-async-await.md#cancellation)
-  - [In `select` and `try_join`](../part-guide/concurrency-primitives.md)
+- [简介](../part-guide/concurrency.md#并发与并行)
+- [使用 `spawn` 并行运行异步任务](../part-guide/async-await.md#派生任务spawning-tasks)
+- [使用 `join` 和 `select` 并发运行 future](../part-guide/concurrency-primitives.md)
+- [混合同步与异步并发](../part-guide/io.md#其他阻塞操作)
 
 
-## Performance
+## 正确性与安全性
 
-- Blocking
-  - [Introduction](../part-guide/more-async-await.md#blocking-and-cancellation)
-  - [Blocking and non-blocking IO](../part-guide/io.md)
-  - [CPU-intensive code](../part-guide/io.md#other-blocking-operations)
+- 取消
+  - [简介](../part-guide/more-async-await.md#取消)
+  - [在 `select` 和 `try_join` 中](../part-guide/concurrency-primitives.md)
 
 
-## Testing
+## 性能
 
-- [Unit test syntax](../part-guide/more-async-await.md#unit-tests)
+- 阻塞
+  - [简介](../part-guide/more-async-await.md#阻塞与取消)
+  - [阻塞与非阻塞 IO](../part-guide/io.md)
+  - [CPU 密集型代码](../part-guide/io.md#其他阻塞操作)
+
+
+## 测试
+
+- [单元测试语法](../part-guide/more-async-await.md#单元测试)

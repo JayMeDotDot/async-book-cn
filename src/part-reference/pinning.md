@@ -1,36 +1,38 @@
-# Pinning
+# 固定（pinning）
 
-Pinning is a notoriously difficult concept and has some subtle and confusing properties. This section will go over the topic in depth (arguably too much depth). Pinning is key to the implementation of async programming in Rust[^design], but it's possible to get far without ever encountering pinning and certainly without having to have a deep understanding.
+固定（pinning）是一个出了名的难以理解的概念，它有一些微妙且容易让人困惑的性质。本节将深入探讨这个主题（可以说是深入得有些过头了）。固定是 Rust 中异步编程实现的关键[^design]，但即使从未接触过固定，你也能应付大多数异步编程场景，更不用说需要对它有深入的理解了。
 
-The first section will give a summary of pinning, which hopefully is enough for most async programmers to know. The rest of this chapter is for implementers, others doing advanced or low-level async programming, and the curious.
+第一部分将给出固定的概述，希望对大多数异步程序员来说这些内容已经足够。本章的其余部分是为三类读者准备的：实现者、从事进阶或底层异步编程的其它人士，以及好奇心强的读者。
 
-After the summary, this chapter will give some background on move semantics before getting into pinning. We'll cover the general idea, then the `Pin` and `Unpin` types, how pinning achieves it goals, and several topics about working with pinning in practice. There are then sections on pinning and async programming, and some alternatives and extensions to pinning (for the really curious). At the end of the chapter are some links to alternative explanations and reference material.
+概述之后，本章将先介绍一些移动语义（move semantics）的背景知识，然后再进入固定的主题。我们会介绍总体思路，然后是 `Pin` 和 `Unpin` 类型、固定如何达成其目标，以及实践中使用固定的若干主题。随后是关于固定与异步编程的章节，以及固定的一些替代方案和扩展（面向真正好奇的读者）。章末提供了一些其它解释和参考资料的链接。
 
-[^design]: It's worth noting that pinning is a low-level building block designed specifically for the implementation of async Rust. Although it is not directly tied to async Rust and can be used for other purposes, it was not designed to be a general-purpose mechanism, and in particular is not an out-of-the-box solution for self-referential fields. Using pinning for anything other than async code generally only works if it is wrapped in thick layers of abstraction, since it will require lots of fiddly and hard to reason about unsafe code. 
+[^design]: 值得注意的是，固定是专为异步 Rust 的实现而设计的底层构件。虽然它并不直接绑定于异步 Rust，也可以用于其它目的，但它并非作为通用机制而设计，尤其不是针对自引用字段的开箱即用的解决方案。在异步代码之外的任何场景使用固定，通常只有在包裹了厚厚的抽象层之后才能行得通，因为这会需要大量繁琐且难以推理的 unsafe 代码。
 
 
 ## TL;DR
 
-`Pin` marks a pointer as pointing to an object which will not move until it is dropped. Pinning is not built-in to the language or compiler; it works by simply restricting access to mutable references to the pointee. It is easy enough to break pinning in unsafe code, but like all safety guarantees in unsafe code, it is the responsibility of the programmer not to do so.
+太长不看版
 
-By guaranteeing that an object won't move, pinning makes it safe to have references from one field of a struct to another (sometimes called self-references). This is required for the implementation of async functions (which are implemented as data structures where variables are stored as fields, since variables may reference each other, fields of a future implementing an async function must be able to reference each other). Mostly, programmers don't have to be aware of this detail, but when dealing with futures directly, you might need to be because the signature of `Future::poll` requires `self` to be pinned.
+`Pin` 将一个指针标记为指向一个在被 drop 之前不会移动的对象。固定并不是内建于语言或编译器中的；它的工作原理只是限制对被指向对象的可变引用的访问。在 unsafe 代码中很容易破坏固定，但就像 unsafe 代码中的所有安全性保证一样，不去破坏它是程序员自己的责任。
 
-If you're using futures by reference, you might need to pin a reference using `pin!(...)` to ensure the reference still implements the `Future` trait (this often comes up with the `select` macro). Likewise, if you want to manually call `poll` on a future (usually because you are implementing another future), you will need a pinned reference to it (use `pin!` or ensure arguments have pinned types). If you're implementing a future or if you have a pinned reference for some other reason, and you want mutable access to the object's internals, you'll need to understand the section below on pinned fields to know how to do so and when it is safe.
+通过保证对象不会移动，固定使得从一个结构体字段指向另一个字段的引用（有时称为自引用）变得安全。这是异步函数的实现所必需的（异步函数被实现为数据结构，变量存储为其字段；由于变量之间可能相互引用，实现异步函数的 future 的字段之间必须能够相互引用）。大多数情况下，程序员无需了解这个细节，但在直接处理 future 时，你可能需要了解它，因为 `Future::poll` 的签名要求 `self` 是被固定的。
+
+如果你通过引用使用 future，可能需要用 `pin!(...)` 把引用固定住，以确保该引用仍然实现 `Future` trait（这在使用 `select` 宏时经常出现）。同样，如果你想手动对 future 调用 `poll`（通常是因为你在实现另一个 future），你需要一个指向它的固定引用（使用 `pin!` 或确保参数为固定类型）。如果你在实现一个 future，或者由于其它原因拥有一个固定引用，并且想要对对象内部进行可变访问，你需要理解下面关于固定字段的章节，以了解如何做到这一点以及何时是安全的。
 
 
-## Move semantics
+## 移动语义（Move semantics）
 
-A useful concept for discussing pinning and related topics is the idea of *place*s. A place is a chunk of memory (with an address) where a value can live. A reference doesn't really point at a value, it points at a place. That is why `*ref = ...` makes sense: the dereference gives you the place, not a copy of the value. Places are well-known to language implementers but usually implicit in programming languages (they are implicit in Rust). Programmers usually have a good intuition for places, but may not think of them explicitly.
+讨论固定及相关主题时，一个有用的概念是*位置*（place）。位置是一块内存（带有地址），值可以存放在其中。引用并不是真正指向值，而是指向位置。这就是为什么 `*ref = ...` 是有意义的：解引用给你的是位置，而不是值的副本。位置对语言实现者来说是耳熟能详的，但在编程语言中通常是隐式的（在 Rust 中也是隐式的）。程序员对位置通常有很好的直觉，但可能不会主动思考它。
 
-As well as references, variables and field accesses evaluate to places. In fact, anything that can appear on the left-hand side of an assignment must be a place at runtime (which is why places are called 'lvalue's in compiler jargon).
+除了引用之外，变量和字段访问求值的结果也是位置。事实上，任何能出现在赋值语句左边的东西，在运行时中都必须是一个位置（这也是位置在编译器行话中被称为"左值"（lvalue）的原因）。
 
-In Rust, mutability is a property of places, as is being 'frozen' as a result of borrowing (we might say the place is borrowed).
+在 Rust 中，可变性是位置的属性；同样，因借用而产生的"冻结"（frozen）状态也是位置的属性（我们可以说这个位置被借用了）。
 
-Assignment in Rust *moves* data (mostly, some simple data has copy semantics, but that doesn't matter too much). When we write `let b = a;`, the data that was in memory at a place identified by `a` is moved to the place identified by `b`. That means that after the assignment, the data exists at `b` but no longer exists at `a`. Or in other words, the address of the object is changed by the assignment[^compiler].
+Rust 中的赋值会*移动*数据（大体如此，一些简单的数据具有复制语义，但这关系不大）。当我们写 `let b = a;` 时，位于 `a` 所标识位置上的数据被移动到 `b` 所标识的位置。这意味着赋值之后，数据存在于 `b`，而不再存在于 `a`。换句话说，对象的地址被这次赋值改变了[^compiler]。
 
-If pointers existed to the place which was moved from, the pointers would be invalid since they no longer point to the object. This is why borrowed references prevent moving: `let r = &a; let b = a;` is illegal, the existence of `r` prevents `a` being moved.
+如果存在指向被移出位置（原来的位置）的指针，这些指针就会失效，因为它们不再指向该对象。这就是借用引用会阻止移动的原因：`let r = &a; let b = a;` 是非法的，`r` 的存在阻止了 `a` 被移动。
 
-The compiler only knows about references from outside an object into the object (such as the above example, or a reference to a field of an object). A reference entirely within an object would be invisible to the compiler. Imagine if we were allowed to write something like:
+编译器只知道从对象外部指向对象内部的引用（例如上面的例子，或指向对象某个字段的引用）。完全位于对象内部的引用对编译器来说是不可见的。想象一下如果我们被允许写出类似这样的代码：
 
 ```rust,norun
 struct Bad {
@@ -39,204 +41,206 @@ struct Bad {
 }
 ```
 
-We could have an instance `b` of `Bad` where `b.r` points to `b.field`. In `let a = b;`, the internal reference `b.r` to `b.field` is invisible to the compiler, so it looks like there are no references to `b` and therefore the move to `a` would be ok. However if that happened, then after the move, `a.r` would not point to `a.field` as we'd like, but to invalid memory at the old location of `b.field`, violating Rust's safety guarantees.
+我们可以有一个 `Bad` 的实例 `b`，其中 `b.r` 指向 `b.field`。在 `let a = b;` 中，`b.r` 指向 `b.field` 的内部引用对编译器是不可见的，因此看起来没有任何对 `b` 的引用，于是移动到 `a` 就是允许的。然而一旦移动真的发生，`a.r` 将不会像我们期望的那样指向 `a.field`，而是指向 `b.field` 原来位置上的无效内存，这违反了 Rust 的安全性保证。
 
-Moving data isn't limited to values. Data can also be moved out of a unique reference. Dereferencing a `Box` moves the data from the heap to the stack. `take`, `replace`, and `swap` (all in [`std::mem`](https://doc.rust-lang.org/std/mem/index.html)) move data out of a mutable reference (`&mut T`). Moving out of a `Box` leaves the pointed-to place invalid. Moving out of a mutable reference leaves the place valid, but containing different data.
-
-
-[^compiler]: We're conflating source code and runtime a bit here. To be absolutely clear, variables don't exist at runtime. The (compiled) snippet might be executed multiple times (e.g., if it's in a loop or in a function called multiple times). For each execution the variables in the source code will be represented by different addresses at runtime.
-
-Abstractly, a move is implemented by copying the bits from the origin to the destination and then erasing the origin bits. However, the compiler can optimise this is many ways.
+移动数据并不限于值本身。数据也可以从独占引用中被移出。解引用一个 `Box` 会把数据从堆移动到栈。`take`、`replace` 和 `swap`（都在 [`std::mem`](https://doc.rust-lang.org/std/mem/index.html) 中）会把数据从可变引用（`&mut T`）中移出。从 `Box` 中移出数据会使被指向的位置失效；从可变引用中移出数据则会使该位置保持有效，但其中是不同的数据。
 
 
-## Pinning
+[^compiler]: 这里我们稍微混淆了源代码和运行时。为绝对清晰起见：变量在运行时并不存在。（编译后的）代码片段可能被执行多次（例如，它在一个循环里，或所在函数被多次调用）。对于每一次执行，源代码中的变量在运行时都由不同的地址来表示。
 
-Important note: I'm going to start by discussing an abstract concept of pinning, which is not exactly what is expressed by any particular type. We'll make the concept more concrete as we go on, and end up with precise definitions of what different types mean, but none of these types mean exactly the same as the pinning concept we'll start with.
-
-An object is pinned if it will not be moved or otherwise invalidated. As I explained above, this is not a new concept - borrowing an object prevents the object being moved for the duration of the borrow. Whether an object can be moved or not is not explicit in Rust's types, though it is known by the compiler (which is why you can get "cannot move out of" error messages). As opposed to borrowing (and the temporary restriction on moves caused by borrowing), being pinned is permanent. An object can change from being not pinned to being pinned, but once it is pinned then it must remain pinned until it is dropped[^inherent].
-
-Just as pointer types reflect the ownership and mutability of the pointee (e.g., `Box` vs `&`, `&mut` vs `&`), we want to reflect pinned-ness in pointer types too. This is not a property of the pointer - the pointer is not pinned or movable - it is a property of the pointed-to place: whether the pointee can be moved out of its place.
-
-Roughly, `Pin<Box<T>>` is a pointer to an owned, pinned object and `Pin<&mut T>` is a pointer to a uniquely borrowed, mutable, pinned object (c.f., `&mut T` which is a pointer to a uniquely borrowed, mutable, object which may or may not be pinned).
-
-The pinning concept was not added to Rust until after 1.0 and for reasons of backwards compatibility, there is no way to explicitly express whether an *object* is pinned or not. We can only express that a reference points to a pinned or not-pinned object.
-
-Pinning is orthogonal to mutability. An object might be mutable and either pinned (`Pin<&mut T>`) or not (`&mut T`) (i.e., the object can be modified, and either it is pinned in place or can be moved), or immutable and either pinned (`Pin<&T>`) or not (`T`) (i.e., the object can't be modified, and either it can't be moved or can be moved but not modified). Note that `&T` cannot be mutated or moved, but is not pinned because its immovability is only temporary.
+抽象地说，移动的实现方式是把比特从原位置复制到目标位置，然后抹除原位置的比特。不过，编译器可以通过多种方式对此进行优化。
 
 
-[^inherent]: Permanence is not a fundamental aspect of pinning, it is part of the framing of pinning in Rust and the safety guarantees around it. It would be ok for pinning to be temporary if this could be safely expressed and the temporal scope of pinning could be relied upon by consumers of the pinning guarantees. However, that is not possible with Rust today or with any reasonable extension.
+## 固定
+
+重要提示：我将从一个抽象的固定概念开始讨论，它与任何具体类型所表达的含义都不完全相同。我们会随着讨论逐步让这个概念具体化，最终给出各种类型含义的精确定义，但这些类型没有一个与我们开始时的固定概念完全等同。
+
+如果一个对象不会被移动或以其它方式失效，我们就说它是被固定的。如前所述，这并不是一个新概念——借用一个对象会在借用期间阻止该对象被移动。对象能否被移动在 Rust 的类型中并不显式，但编译器是知道的（这就是为什么你会看到 "cannot move out of" 这样的错误信息）。与借用（以及由借用带来的对移动的临时限制）不同，被固定是永久性的。对象可以从未固定变为固定，但一旦被固定，它就必须保持固定状态直到被 drop[^inherent]。
+
+正如指针类型反映被指向对象的所有权和可变性（例如 `Box` vs `&`，`&mut` vs `&`），我们也希望在指针类型中反映"被固定"这一属性。这不是指针的属性——指针本身既不固定也不可移动——而是被指向位置的属性：被指向对象能否被移出它的位置。
+
+粗略地说，`Pin<Box<T>>` 是指向一个被拥有的、已固定对象的指针；`Pin<&mut T>` 是指向一个被独占借用的、可变的、已固定对象的指针（对比 `&mut T`，它是指向一个被独占借用的、可变的、可能固定也可能未固定对象的指针）。
+
+固定概念直到 Rust 1.0 之后才被加入，出于向后兼容的原因，无法显式表达一个*对象*本身是否被固定。我们只能表达一个引用指向的是已固定还是未固定的对象。
+
+固定与可变性是正交的——两者相互独立，可以自由组合。一个对象可以是可变的，同时被固定（`Pin<&mut T>`）或未固定（`&mut T`）（即对象可以被修改，且它要么被固定在原地，要么可以被移动）；也可以是不可变的，同时被固定（`Pin<&T>`）或未固定（`T`）（即对象不能被修改，且它要么不能被移动，要么能被移动但不能被修改）。注意，`&T` 既不能被修改也不能被移动，但它并不算被固定，因为它的不可移动性只是临时的。
+
+
+[^inherent]: 永久性并不是固定的根本属性，它是 Rust 中固定的框架设定及其安全性保证的一部分。如果固定可以是临时的，并且这能被安全地表达、固定的时间范围能被固定保证的消费者所信赖，那也是可以的。然而，在今天的 Rust 或任何合理的语言扩展中，这都是不可能实现的。
 
 
 ### `Unpin`
 
-Although moving and not moving is how we introduced pinning and is somewhat suggested by the name, `Pin` does not actually tell you much about whether the pointee will actually move or not.
+虽然"移动与不移动"是我们引入固定概念的方式，而且名字也多少暗示了这一点，但 `Pin` 实际上并不能告诉你多少关于被指向对象是否真的会移动的信息。
 
-What? Sigh.
+什么？唉。
 
-Pinning is actually a contract about validity, not about moving. It guarantees that *if an object is address-sensitive, then* its address will not change (and thus addresses derived from it, such as the addresses of its fields, will not change either). Most data in Rust is not address-sensitive. It can be moved around and everything will be ok. `Pin` guarantees that the pointee will be valid with respect to it's address. If the pointee is address-sensitive, then it can't be moved; if it's not address-sensitive, then it doesn't matter whether it is moved.
+固定实际上是一个关于有效性的契约，而不是关于移动的。它保证*如果一个对象是地址敏感的，那么*它的地址不会改变（因而从它派生出的地址，例如其字段的地址，也不会改变）。Rust 中的大多数数据并不是地址敏感的，它们可以被随意移动而不会出任何问题。`Pin` 保证被指向对象相对于其地址是有效的。如果被指向对象是地址敏感的，那么它就不能被移动；如果不是地址敏感的，那么它是否被移动无关紧要。
 
-`Unpin` is a trait which expresses whether objects are address-sensitive. If an object implements `Unpin`, then it is *not* address-sensitive. If an object is `!Unpin` then it is address-sensitive. Alternatively, if we think of pinning as the act of holding an object in its place, then `Unpin` means it is safe to undo that action and allow the object to be moved.
+`Unpin` 是一个表达对象是否地址敏感的 trait。如果对象实现了 `Unpin`，那么它*不*是地址敏感的；如果对象是 `!Unpin`，那么它是地址敏感的。换个角度，如果我们把固定理解为把对象固定在其位置上的行为，那么 `Unpin` 意味着撤销该行为、允许对象被移动是安全的。
 
-`Unpin` is an auto-trait and most types are `Unpin`. Only types which have an `!Unpin` field or which explicitly opt-out are not `Unpin`. You can opt-out by having a [`PhantomPinned`](https://doc.rust-lang.org/std/marker/struct.PhantomPinned.html) field or (if you're using nightly) with `impl !Unpin for ... {}`.
+`Unpin` 是一个自动 trait（auto-trait），大多数类型都是 `Unpin` 的。只有含有 `!Unpin` 字段或显式选择退出的类型才不是 `Unpin`。你可以通过拥有一个 [`PhantomPinned`](https://doc.rust-lang.org/std/marker/struct.PhantomPinned.html) 字段，或者（如果使用 nightly）用 `impl !Unpin for ... {}` 来选择退出。
 
-For types which implement `Unpin`, `Pin` essentially does nothing. `Pin<Box<T>>` and `Pin<&mut T>` can be used just like `Box<T>` and `&mut T`. In fact, for `Unpin` types, the `Pin`ed and regular pointers can be freely-interconverted using `Pin::new` and `Pin::into_inner`. It's worth restating: `Pin<...>` does not guarantee that the pointee will not move, only that the pointee won't move if it is `!Unpin`.
+对于实现了 `Unpin` 的类型，`Pin` 基本上不起任何作用。`Pin<Box<T>>` 和 `Pin<&mut T>` 可以像 `Box<T>` 和 `&mut T` 一样使用。事实上，对于 `Unpin` 类型，被固定的指针与普通指针可以通过 `Pin::new` 和 `Pin::into_inner` 自由转换。值得再强调一遍：`Pin<...>` 并不保证被指向对象不会移动，只保证当它是 `!Unpin` 时不会移动。
 
-The practical implication of the above is that working with `Unpin` types and pinning is much easier than with types which are not `Unpin`, in fact the `Pin` marker has basically no effect on `Unpin` types and pointers to `Unpin` types, and you can basically ignore all the pinning guarantees and requirements.
+上面的讨论在实际中的含义是：处理 `Unpin` 类型和固定比处理非 `Unpin` 类型容易得多。实际上，`Pin` 标记对 `Unpin` 类型及指向 `Unpin` 类型的指针基本没有影响，你基本上可以忽略所有与固定有关的保证和要求。
 
-`Unpin` should not be understood as a property of an object alone; the only thing `Unpin` changes is how an object interacts with `Pin`. Using an `Unpin` bound outside of the pinning context doesn't affect the compiler's behaviour or what can be done with the object. The only reason to use `Unpin` is in conjunction with pinning, or to propagate the bound to where it is used with pinning.
+`Unpin` 不应被理解为单独对象本身的属性；`Unpin` 唯一改变的是对象与 `Pin` 交互的方式。在 pinning 上下文之外使用 `Unpin` 约束，既不影响编译器的行为，也不影响能对对象做什么。使用 `Unpin` 的唯一理由是配合固定使用，或者把该约束传递到将来与固定一起使用的地方。
 
 
 ### `Pin`
 
-[`Pin`](https://doc.rust-lang.org/std/pin/struct.Pin.html) is a marker type, it is important for type checking, but is compiled away and does not exist at runtime (`Pin<Ptr>` is guaranteed to have the same memory layout and ABI as `Ptr`). It is a wrapper of pointers (such as `Box`), so it behaves like a pointer type, but it does not add an indirection, `Box<Foo>` and `Pin<Box<Foo>>` are the same when a program is run. It is better to think of `Pin` as a modifier to the pointer rather than a pointer itself.
+[`Pin`](https://doc.rust-lang.org/std/pin/struct.Pin.html) 是一个标记类型（marker type），它对类型检查很重要，但会在编译时被消除，在运行时并不存在（`Pin<Ptr>` 保证与 `Ptr` 具有相同的内存布局和 ABI）。它是指针（如 `Box`）的包装器，所以它的行为类似指针类型，但它并不增加一层间接，`Box<Foo>` 和 `Pin<Box<Foo>>` 在程序运行时是完全相同的。最好把 `Pin` 理解为对指针的修饰，而不是一个指针本身。
 
-`Pin<Ptr>` means that the pointee of `Ptr` (not `Ptr` itself) is pinned. That is, `Pin` guarantees that the pointee (not the pointer) will remain valid with respect to its address until the pointee is dropped. If the pointee is address-sensitive (i.e., is `!Unpin`), then the pointee will not be moved.
-
-
-### Pinning values
-
-Objects are not created pinned. An object starts unpinned (and may be freely moved), it becomes pinned when a pinning pointer is created which points to the object. If the object is `Unpin`, then this is trivial using `Pin::new`, however, if the object is not `Unpin`, then pinning it must ensure that it cannot be moved or invalidated via an alias.
-
-To pin an object on the heap, you can create a new pinning `Box` by using [`Box::pin`](https://doc.rust-lang.org/std/boxed/struct.Box.html#method.pin), or convert an existing `Box` into a pinning `Box` using [`Box::into_pin`](https://doc.rust-lang.org/std/boxed/struct.Box.html#method.into_pin). In either case, you'll end up with `Pin<Box<T>>`. Some other pointers (such as `Arc` and `Rc`) have similar mechanisms. For pointers which don't, or for your own pointer types, you'll need to use [`Pin::new_unchecked`](https://doc.rust-lang.org/std/pin/struct.Pin.html#method.new_unchecked) to create a pinned pointer[^box-pin]. This is an unsafe function and so the programmer must ensure that `Pin`'s invariants are maintained. That is, that the pointee will, under every circumstance, remain valid until it's destructor is called. There are some subtle details to ensuring this, refer to the function's [docs](https://doc.rust-lang.org/std/pin/struct.Pin.html#method.new_unchecked) or the below section [how pinning works](#how-pinning-works) for more.
-
-`Box::pin` pins an object to a place in the heap. To pin an object on the stack, you can use the [`pin`](https://doc.rust-lang.org/std/pin/macro.pin.html) macro to create and pin a mutable reference (`Pin<&mut T>`)[^not-stack].
-
-Tokio also has a [`pin`](https://docs.rs/tokio/latest/tokio/macro.pin.html) macro which does the same thing as the std macro and also supports assigning into a variable inside the macro. The futures-rs and pin-utils crates have a `pin_mut` macro which used to be commonly used, but is now deprecated in favor of the std macro.
-
-You can also use `Pin::static_ref` and `Pin::static_mut` to pin a static reference.
-
-[^box-pin]: There is no special treatment for `Box` (or the other std pointers) either in the pinning implementation or the compiler. `Box` uses the unsafe functions in `Pin`'s API to implement `Box::pin`. The safety requirements of `Pin` are satisfied due to the safety guarantees of `Box`.
-
-[^not-stack]: This is only strictly pinning to the stack in non-async functions. In an async function, all locals are allocated in the async pseudo-stack, so the place being pinned is likely to be stored on the heap as part of the future underlying the async function.
+`Pin<Ptr>` 表示 `Ptr` 的被指向对象（而不是 `Ptr` 本身）被固定。也就是说，`Pin` 保证被指向对象（而不是指针）在被 drop 之前相对于其地址保持有效。如果被指向对象是地址敏感的（即 `!Unpin`），那么它将不会被移动。
 
 
-### Using pinned types
+### 固定值（Pinning values）
 
-In theory, using pinned pointers is just like using any other pointer type. However, because it is not the most intuitive abstraction, and because it has no language support, using pinned pointers tends to be pretty unergonomic. The most common case for using pinning is when dealing with futures and streams, we'll cover those specifics in more detail below.
+对象在创建时并不是固定状态。对象一开始是未固定的（可以被自由移动），当创建了一个指向该对象的固定指针时，它才成为固定状态。如果对象是 `Unpin` 的，那么用 `Pin::new` 就可以轻而易举地做到；但如果对象不是 `Unpin` 的，那么固定它就必须确保它无法通过别名被移动或失效。
 
-Using a pinned pointer as an immutably borrowed reference is trivial because of `Pin`'s implementation of `Deref`. You can mostly just treat `Poll<Ptr<T>>` as `&T`, using an explicit `deref()` if necessary. Likewise, getting a `Pin<&T>` is pretty easy using `as_ref()`.
+要固定堆上的对象，可以用 [`Box::pin`](https://doc.rust-lang.org/std/boxed/struct.Box.html#method.pin) 创建一个新的固定 `Box`，或用 [`Box::into_pin`](https://doc.rust-lang.org/std/boxed/struct.Box.html#method.into_pin) 把现有的 `Box` 转换为固定 `Box`。无论哪种方式，你最后都会得到 `Pin<Box<T>>`。其它一些指针（如 `Arc` 和 `Rc`）也有类似的机制。对于没有这种机制的指针，或者你自己写的指针类型，你需要用 [`Pin::new_unchecked`](https://doc.rust-lang.org/std/pin/struct.Pin.html#method.new_unchecked) 来创建固定指针[^box-pin]。这是一个 unsafe 函数，因此程序员必须确保 `Pin` 的不变式始终成立。也就是说，被指向对象在任何情况下都必须保持有效，直到其析构函数被调用。确保这一点有一些微妙的细节，详见该函数的[文档](https://doc.rust-lang.org/std/pin/struct.Pin.html#method.new_unchecked)或下面的[固定如何工作](#how-pinning-works)一节。
 
-The most common way to work with pinned types is using `Pin<&mut T>` (e.g., in [`Future::poll`](https://doc.rust-lang.org/std/future/trait.Future.html#tymethod.poll)), however, the easiest way to produce a pinned object is `Box::pin` which gives a `Pin<Box<T>>`. You can convert the latter to the former using [`Pin::as_mut`](https://doc.rust-lang.org/std/pin/struct.Pin.html#method.as_mut). However, without the language support for reusing references (implicit reborrowing), you have to keep calling `as_mut` rather than reusing the result. E.g. (from the `as_mut` docs),
+`Box::pin` 把对象固定在堆上的一个位置。要固定栈上的对象，可以用 [`pin`](https://doc.rust-lang.org/std/pin/macro.pin.html) 宏来创建并固定一个可变引用（`Pin<&mut T>`）[^not-stack]。
+
+Tokio 也有一个 [`pin`](https://docs.rs/tokio/latest/tokio/macro.pin.html) 宏，它与标准库宏做同样的事情，还支持在宏内部直接赋值给变量。futures-rs 和 pin-utils crate 中有一个 `pin_mut` 宏，过去很常用，但现在已被弃用，推荐使用标准库宏。
+
+你也可以使用 `Pin::static_ref` 和 `Pin::static_mut` 来固定一个静态引用。
+
+[^box-pin]: `Box`（或其它标准库指针）在固定的实现或编译器中都没有受到特殊对待。`Box` 使用 `Pin` API 中的 unsafe 函数来实现 `Box::pin`。由于 `Box` 自身的安全性保证，`Pin` 的安全性要求得到了满足。
+
+[^not-stack]: 严格来说，只有在非 async 函数中这才是真正固定到栈上。在 async 函数中，所有局部变量都分配在异步伪栈（async pseudo-stack）中，因此被固定的位置很可能作为 async 函数底层 future 的一部分存储在堆上。
+
+
+### 使用固定类型
+
+理论上，使用固定指针与使用其它任何指针类型没有区别。然而，由于它不是一个最直观的抽象，而且没有语言层面的支持，使用固定指针往往相当不符合人体工程学。使用固定最常见的情况是处理 future 和流（stream），我们会在下面更详细地介绍这些具体内容。
+
+把固定指针当作不可变借用引用来使用非常简单，这得益于 `Pin` 对 `Deref` 的实现。你基本上可以直接把 `Poll<Ptr<T>>` 当作 `&T` 来用，必要时使用显式的 `deref()`。同样，用 `as_ref()` 获得一个 `Pin<&T>` 也很容易。
+
+处理固定类型最常用的方式是使用 `Pin<&mut T>`（例如在 [`Future::poll`](https://doc.rust-lang.org/std/future/trait.Future.html#tymethod.poll) 中），然而，产生固定对象最简单的方式是 `Box::pin`，它给出 `Pin<Box<T>>`。你可以用 [`Pin::as_mut`](https://doc.rust-lang.org/std/pin/struct.Pin.html#method.as_mut) 把后者转换为前者。但是，由于缺少语言层面对重用引用的支持（隐式重借用），你必须不断调用 `as_mut`，而不能重用其结果。例如（来自 `as_mut` 的文档）：
 
 ```rust,norun
 impl Type {
     fn method(self: Pin<&mut Self>) {
-        // do something
+        // 做些操作
     }
 
     fn call_method_twice(mut self: Pin<&mut Self>) {
-        // `method` consumes `self`, so reborrow the `Pin<&mut Self>` via `as_mut`.
+        // method 会消耗 self，因此需要通过 as_mut 重新借用 Pin<&mut Self>
         self.as_mut().method();
         self.as_mut().method();
     }
 }
 ```
 
-If you need to access the pinned pointee in some other way, you can do so via [`Pin::into_inner_unchecked`](https://doc.rust-lang.org/std/pin/struct.Pin.html#method.into_inner_unchecked). However, this is unsafe and you must be *very* careful about ensuring the safety requirements of `Pin` are respected.
+如果你需要以其它方式访问被固定的对象，可以通过 [`Pin::into_inner_unchecked`](https://doc.rust-lang.org/std/pin/struct.Pin.html#method.into_inner_unchecked) 来实现。但这是 unsafe 的，你必须*非常*小心地确保遵守 `Pin` 的安全性要求。
 
 
-### How pinning works
+### 固定如何工作
 
-`Pin` is a simple wrapper struct (aka, a newtype) for pointers. It is enforced to work only on pointers by requiring the `Deref` bound on it's generic parameter to do anything useful, however, this is just for expressing intention, rather than for preserving safety. As with most newtype wrappers, `Pin` exists to express an invariant at compile-time rather than for any runtime effect. Indeed, in most circumstances, `Pin` and the pinning machinery will completely disappear during compilation.
+`Pin` 是一个用于指针的简单包装结构体（也就是 newtype）。它通过要求其泛型参数满足 `Deref` 约束才能做任何有用的事，从而强制它只作用于指针，不过这只是表达意图，而不是为了保持安全性。与大多数 newtype 包装器一样，`Pin` 的存在是为了在编译期表达一个不变式，而不是为了任何运行时效果。实际上，在大多数情况下，`Pin` 和固定机制在编译过程中会完全消失。
 
-To be precise, the invariant expressed by `Pin` is about validity, not just movability. It is also a validity invariant which only applies once a pointer is pinned - before that `Pin` has no effect and makes no requirements on what happens before something is pinned. Once a pointer is pinned, `Pin` requires (and guarantees in safe code) that the pointed-to object will remain valid at the same address in memory until the object's destructor is called.
+准确地说，`Pin` 表达的不变式是关于有效性的，而不仅仅是可移动性。而且这是一个只在指针被固定之后才生效的有效性不变式——在此之前，`Pin` 没有任何作用，也不对对象被固定之前发生的事情提出任何要求。一旦指针被固定，`Pin` 就要求（并在安全代码中保证）被指向对象将在内存中的同一地址保持有效，直到该对象的析构函数被调用。
 
-For immutable pointers (e.g., borrowed references), `Pin` has no effect - since the pointee cannot be mutated or replaced, there is no danger of it being invalidated.
+对于不可变指针（例如借用引用），`Pin` 不起任何作用——由于被指向对象既不能被修改也不能被替换，不存在它失效的危险。
 
-For a pointer that allows mutation (e.g., `Box` or `&mut`), having direct access to that pointer or access to a mutable reference (`&mut`) to the pointee could allow for mutation or moving the pointee. `Pin` simply does not provide any (non-`unsafe`) way to get direct access to the pointer or a mutable reference. The usual way for a pointer to provide a mutable reference to its pointee is by implementing [`DerefMut`](https://doc.rust-lang.org/std/ops/trait.DerefMut.html), `Pin` only implements `DerefMut` if the pointee is `Unpin`.
+对于允许修改的指针（例如 `Box` 或 `&mut`），直接访问该指针或获得指向被指向对象的可变引用（`&mut`）都可能造成对被指向对象的修改或移动。`Pin` 干脆不提供任何（非 `unsafe` 的）途径去获得对指针的直接访问或可变引用。指针为被指向对象提供可变引用的惯常方式是实现 [`DerefMut`](https://doc.rust-lang.org/std/ops/trait.DerefMut.html)，而 `Pin` 仅当被指向对象是 `Unpin` 时才实现 `DerefMut`。
 
-This implementation is incredibly simple! To summarize: `Pin` is a wrapper struct around a pointer which provides only immutable access to the pointee (and mutable access if the pointee is `Unpin`). Everything else is details (and subtle invariants for unsafe code). For convenience, `Pin` provides a facility to convert between `Pin` types (always safe since the pointer cannot escape a `Pin`), etc.
+这个实现简单得令人难以置信！概括一下：`Pin` 是一个围绕指针的包装结构体，它只提供对被指向对象的不可变访问（当被指向对象是 `Unpin` 时也提供可变访问）。其余的一切都是细节（以及 unsafe 代码需要遵守的微妙不变式）。为了方便起见，`Pin` 还提供了一套在 `Pin` 类型之间转换的设施（这总是安全的，因为指针无法从 `Pin` 中逃逸），等等。
 
-`Pin` also provides unsafe functions for creating pinned pointers and accessing the underlying data. As with all `unsafe` functions, maintaining the safety invariants is the responsibility of the programmer rather than the compiler. Unfortunately, the safety invariants for pinning are somewhat scattered, in that they are enforced in different places and are hard to describe in a global, unified manner. I won't describe them in detail here and refer you to the docs, but I'll attempt to summarize (see the [module docs](https://doc.rust-lang.org/std/pin/index.html) for a detailed overview):
+`Pin` 还提供了用于创建固定指针和访问底层数据的 unsafe 函数。与所有 `unsafe` 函数一样，确保安全性不变式始终成立，是程序员而非编译器的责任。遗憾的是，与固定相关的安全性不变式比较分散，它们在不同的地方被强制执行，很难用一种全局统一的方式来描述。我不会在这里详细描述它们，而是让你参考文档，但我会尝试做一个小结（详细概述见[模块文档](https://doc.rust-lang.org/std/pin/index.html)）：
 
-- Creating a new pinned pointer [`new_unchecked`](https://doc.rust-lang.org/std/pin/struct.Pin.html#method.new_unchecked). The programmer must ensure that the pointee is pinned (that is, abides by the pinning invariants). This requirement may be satisfied by the pointer type alone (e.g., in the case of `Box`) or may require participation of the pointee type (e.g., in the case of `&mut`). This includes (but is not limited to):
-  - Not moving out of `self` in `Deref` and `DerefMut`.
-  - Properly implementing `Drop`, see [the drop guarantee](https://doc.rust-lang.org/std/pin/index.html#subtle-details-and-the-drop-guarantee).
-  - Opting out of `Unpin` (by using [`PhantomPinned`](https://doc.rust-lang.org/std/marker/struct.PhantomPinned.html)) if you require the pinning guarantees.
-  - The pointee may not be `#[repr(packed)]`.
-- Accessing the pinned value [`into_inner_unchecked`](https://doc.rust-lang.org/std/pin/struct.Pin.html#method.into_inner_unchecked), [`get_unchecked_mut`](https://doc.rust-lang.org/std/pin/struct.Pin.html#method.get_unchecked_mut), [`map_unchecked`](https://doc.rust-lang.org/std/pin/struct.Pin.html#method.map_unchecked), and [`map_unchecked_mut`](https://doc.rust-lang.org/std/pin/struct.Pin.html#method.map_unchecked_mut). It becomes the programmer's responsibility to enforce the pinning guarantees (including not moving the data) from the moment data is accessed until it's destructor runs (note that this scope of responsibility extends beyond the unsafe call and applies whatever happens to the underlying data).
-- Not providing any other way to move data out of a pinned type (which would need an unsafe implementation).
+- 创建新的固定指针 [`new_unchecked`](https://doc.rust-lang.org/std/pin/struct.Pin.html#method.new_unchecked)。程序员必须确保被指向对象是被固定的（即遵守固定的不变式）。这一要求可以仅由指针类型满足（例如 `Box` 的情况），也可能需要被指向类型的参与（例如 `&mut` 的情况）。这包括（但不限于）：
+  - 在 `Deref` 和 `DerefMut` 中不移出 `self`。
+  - 正确实现 `Drop`，参见 [drop 保证](https://doc.rust-lang.org/std/pin/index.html#subtle-details-and-the-drop-guarantee)。
+  - 如果你需要固定保证，选择退出 `Unpin`（使用 [`PhantomPinned`](https://doc.rust-lang.org/std/marker/struct.PhantomPinned.html)）。
+  - 被指向对象不能是 `#[repr(packed)]`。
+- 访问被固定的值：[`into_inner_unchecked`](https://doc.rust-lang.org/std/pin/struct.Pin.html#method.into_inner_unchecked)、[`get_unchecked_mut`](https://doc.rust-lang.org/std/pin/struct.Pin.html#method.get_unchecked_mut)、[`map_unchecked`](https://doc.rust-lang.org/std/pin/struct.Pin.html#method.map_unchecked) 和 [`map_unchecked_mut`](https://doc.rust-lang.org/std/pin/struct.Pin.html#method.map_unchecked_mut)。从数据被访问的那一刻起，直到其析构函数运行，强制执行固定保证（包括不移动数据）成为程序员的责任（注意，这个责任范围超出了 unsafe 调用本身，无论底层数据发生什么，它都适用）。
+- 不提供任何其它把数据移出固定类型的途径（那将需要 unsafe 实现）。
 
 
-#### Pinning pointer types
+#### 固定指针类型
 
-We said earlier that `Pin` wraps a pointer type. It is common to see `Pin<Box<T>>`, `Pin<&T>`, and `Pin<&mut T>`. Technically, the only requirement of the pinning pointer type is that it implements `Deref`. However, there are no ways to create a `Pin<Ptr>` for any other pointer types other than using unsafe code (via `new_unchecked`). Doing so has requirements on the pointer type to ensure the pinning contract:
+我们前面说过，`Pin` 包装了一个指针类型。常见的是 `Pin<Box<T>>`、`Pin<&T>` 和 `Pin<&mut T>`。严格来说，对固定指针类型的唯一要求是它实现 `Deref`。然而，除了使用 unsafe 代码（通过 `new_unchecked`）之外，没有办法为其它指针类型创建 `Pin<Ptr>`。这样做对指针类型有要求，以确保固定契约：
 
-- The pointer's implementations of `Deref` and `DerefMut` must not move out of their pointee.
-- It must not be possible to obtain an `&mut` reference to the pointee at any time after the `Pin` is created, even after the `Pin` has been dropped (this is why you can't safely construct a `Pin<&mut T>` from an `&mut T`). This must remain true via multiple steps or via references (which prevents using `Rc` or `Arc`).
-- The pointer's implementation of `Drop` must not move (or otherwise invalidate) it's pointee. 
+- 指针对 `Deref` 和 `DerefMut` 的实现不能把数据移出其被指向对象。
+- 在 `Pin` 被创建之后的任何时刻，都必须无法获得指向被指向对象的 `&mut` 引用，即使在 `Pin` 被 drop 之后也是如此（这就是为什么不能安全地从 `&mut T` 构造出 `Pin<&mut T>`）。这一条必须在经过多个步骤或经由引用时依然成立（这排除了使用 `Rc` 或 `Arc`）。
+- 指针对 `Drop` 的实现不得移动（或以其它方式使失效）其被指向对象。
 
-See the `new_unchecked` [docs](https://doc.rust-lang.org/std/pin/struct.Pin.html#method.new_unchecked) for more detail.
+更多细节参见 `new_unchecked` 的[文档](https://doc.rust-lang.org/std/pin/struct.Pin.html#method.new_unchecked)。
 
-### Pinning and `Drop`
 
-The pinning contract applies until the pinned object is dropped (technically, that means when its `drop` method returns, not when it is called). This is usually fairly straightforward since `drop` is called automatically when objects are destroyed. If you are doing things manually with an object's lifecycle, you might need to give it some extra thought. If you have an object which is (or might be) pinned and that object is not `Unpin`, then you must call it's `drop` method (using [`drop_in_place`](https://doc.rust-lang.org/std/ptr/fn.drop_in_place.html)) before deallocating or reusing the object's memory or address. See the [std docs](https://doc.rust-lang.org/std/pin/index.html#drop-guarantee) for details.
+### 固定与 `Drop`
 
-If you are implementing an address-sensitive type (i.e., one that is `!Unpin`), then you must take extra care with the `Drop` implementation. Even though the self-type in `drop` is `&mut Self`, you must treat the self-type as `Pin<&mut Self>`. In other words, you must ensure the object remains valid until the `drop` function returns. One way to make this explicit in the source code is to follow the following idiom:
+固定契约在被固定的对象被 drop 之前一直有效（严格来说，是指在它的 `drop` 方法返回之时，而不是它被调用之时）。这通常相当直接，因为 `drop` 会在对象被销毁时自动调用。如果你在手动管理对象的生命周期，可能需要多加考虑。如果你有一个（可能）被固定的对象，且该对象不是 `Unpin` 的，那么在释放或复用该对象的内存或地址之前，你必须调用它的 `drop` 方法（使用 [`drop_in_place`](https://doc.rust-lang.org/std/ptr/fn.drop_in_place.html)）。详情参见[标准库文档](https://doc.rust-lang.org/std/pin/index.html#drop-guarantee)。
+
+如果你在实现一个地址敏感的类型（即 `!Unpin` 的类型），那么你必须格外注意 `Drop` 的实现。尽管 `drop` 中的 self 类型是 `&mut Self`，你必须把这个 self 类型当作 `Pin<&mut Self>` 来对待。换句话说，你必须确保对象在 `drop` 函数返回之前保持有效。在源代码中把这一点显式化的一种方法是遵循下面这个惯用法：
 
 ```rust,norun
 impl Drop for Type {
     fn drop(&mut self) {
-        // `new_unchecked` is okay because we know this value is never used
-        // again after being dropped.
+        // 在这里使用 `new_unchecked` 是可以的，因为我们知道这个值
+        // 在被 drop 之后绝不会再被使用。
         inner_drop(unsafe { Pin::new_unchecked(self)});
 
         fn inner_drop(this: Pin<&mut Self>) {
-            // Actual drop code goes here.
+            // 真正的 drop 代码在这里。
         }
     }
 }
 ```
 
-Note that the validity requirements will be dependent on the type being implemented. Precisely defining these requirements, especially concerning object destruction is recommended, especially if multiple objects could be involved (e.g., an intrusive linked list). Ensuring correctness here is likely to be interesting!
-
-### Pinned self in methods
-
-Calling methods on pinned types leads to thinking about the self-type in these methods. If the method does not need to mutate `self`, then you can still use `&self` since `Pin<...>` can dereference to a borrowed reference. However, if you need to mutate `self` (and your type is not `Unpin`) then you need to choose between `&mut self` and `self: Pin<&mut Self>` (although pinned pointers can't be implicitly coerced to the latter type, they can be easily converted using `Pin::as_mut`).
-
-Using `&mut self` makes the implementation easy, but means the method cannot be called on a pinned object. Using `self: Pin<&mut Self>` means considering pin projection (see the next section) and can only be called on a pinned object. Although this is all a bit confounding, it makes sense intuitively when you remember that pinning is a phased concept - objects start unpinned, and at some point undergo a phase change to become pinned. `&mut self` methods are ones which can be called in the first (unpinned) phase and `self: Pin<&mut Self>` methods are ones which can be called in the second (pinned) phase.
-
-Note that `drop` takes `&mut self` (even though it might be called in either phase). This is due to a limitation of the language and the desire for backwards compatibility. It requires special treatment in the compiler and comes with safety requirements.
+注意，有效性要求将取决于所实现的类型。建议精确定义这些要求，尤其是与对象销毁相关的要求，特别是当可能涉及多个对象时（例如侵入式链表）。确保这里的正确性很可能会非常"有趣"！
 
 
-### Pinned fields, structural pinning, and pin projection
+### 方法中的固定 self
 
-Given that an object is pinned, what does that tell us about the 'pinned'-ness of its fields? The answer depends on choices made by the implementer of the datatype, there is no universal answer (indeed it can be different for different fields of the same object). 
+在固定类型上调用方法，自然会想到这些方法中的 self 类型。如果方法不需要修改 `self`，那么你仍然可以使用 `&self`，因为 `Pin<...>` 可以解引用为借用引用。然而，如果你需要修改 `self`（且你的类型不是 `Unpin` 的），那么你需要在 `&mut self` 和 `self: Pin<&mut Self>` 之间做出选择（虽然固定指针不能被隐式强转为后一种类型，但可以用 `Pin::as_mut` 轻松转换）。
 
-If the pinned-ness of an object propagates to a field, we say the field exhibits 'structural pinning' or that pinning is projected with the field. In this case there should be a projection method `fn get_field(self: Pin<&mut Self>) -> Pin<&mut Field>`. If the field is not structurally pinned, then a projection method should have signature `fn get_field(self: Pin<&mut Self>) -> &mut Field`. Implementing either method (or implementing similar code) requires `unsafe` code and either choice has safety implications. Pin-propagation must be consistent, a field must always be structurally pinned or not, it is nearly always unsound for a field to be structurally pinned at some times and not at others.
+使用 `&mut self` 让实现变得简单，但意味着该方法不能在已固定的对象上调用。使用 `self: Pin<&mut Self>` 意味着要考虑固定投影（pin projection，见下一节），并且只能在已固定的对象上调用。虽然这一切有些令人困惑，但只要你记住固定是一个分阶段的概念——对象一开始是未固定的，然后在某个时刻经历阶段转变成为固定的——它在直觉上就说得通了。`&mut self` 方法是可以在第一阶段（未固定）调用的方法，而 `self: Pin<&mut Self>` 方法是可以在第二阶段（已固定）调用的方法。
 
-Pinning should project to a field if the field is an address-sensitive part of the aggregate datatype. That is, if the aggregate being pinned depends on the field being pinned, then pinning must project to that field. For example, if there is a reference from another part of the aggregate into the field, or if there is a self-reference within the field, then pinning must project to the field. On the other hand, for a generic collection, pinning does not need to project to it's contents since the collection does not rely on their behaviour (that's because the collection cannot rely on the implementation of the generic items it contains, so the collection itself cannot rely on the addresses of its items).
-
-When writing unsafe code, you can only assume that the pinning guarantees apply to the fields of an object which are structurally pinned. On the other hand, you can safely treat non-structurally pinned fields as moveable and not worry about the pinning requirements for them. In particular, a struct can be `Unpin` even if a field is not, as long as that field is always treated as not being structurally pinned.
-
-If a field is structurally pinned, then the pinning requirements on the aggregate struct extend to the field. Under no circumstance can code move the contents of the field while the aggregate is pinned (this would always require unsafe code). Structurally pinned fields must be dropped before they are moved (including deallocation) even in the case of panicking, which means care must be taken within the aggregate's `Drop` impl. Furthermore, the aggregate struct cannot be `Unpin` unless all of its structurally-pinned fields are.
+注意，`drop` 接受 `&mut self`（尽管它可能在任一阶段被调用）。这是由于语言的限制以及对向后兼容的期望。它在编译器中需要特殊对待，并伴随着安全性要求。
 
 
-#### Macros for pin projection
+### 固定字段、结构化固定与固定投影
 
-There are macros available for helping with pin projection.
+已知一个对象被固定，这对其字段的"被固定"状态意味着什么？答案取决于该数据类型实现者的选择，没有统一的答案（事实上，同一对象的不同字段可以有不同的选择）。
 
-The [pin-project](https://docs.rs/pin-project/latest/pin_project/) crate provides the `#[pin_project]` attribute macro (and the `#[pin]` helper attribute) which implements safe pin projection for you by creating a pinned version of the annotated type which can be accessed using the `project` method on the annotated type.
+如果一个对象的固定性传播到某个字段，我们就说该字段表现出"结构化固定"（structural pinning），或者说固定随该字段投影。在这种情况下，应当有一个投影方法 `fn get_field(self: Pin<&mut Self>) -> Pin<&mut Field>`。如果字段不是结构化固定的，那么投影方法的签名应为 `fn get_field(self: Pin<&mut Self>) -> &mut Field`。实现这两种方法中的任何一种（或实现类似代码）都需要 `unsafe` 代码，且两种选择都有安全性影响。固定的传播必须是一致的：一个字段要么总是结构化固定的，要么总是不是；一个字段有时结构化固定、有时不固定，几乎总是不健全（unsound）的。
 
-[Pin-project-lite](https://docs.rs/pin-project-lite/latest/pin_project_lite/) is an alternative using a declarative macro (`pin_project!`) which works in a very similar way to pin-project. Pin-project-lite is lightweight in the sense that it is not a procedural macro and therefore does not add dependences for implementing procedural macros to your project. However, it is less expressive than pin-project and does not give custom error messages. Pin-project-lite is recommended if you want to avoid adding the procedural macro dependencies, and pin-project is recommended otherwise.
+如果字段是聚合数据类型中地址敏感的部分，固定就应当投影到该字段。也就是说，如果聚合类型的固定依赖于该字段的固定，那么固定必须投影到该字段。例如，如果聚合类型中有从另一部分指向该字段的引用，或者该字段内部存在自引用，那么固定必须投影到该字段。另一方面，对于泛型集合，固定不需要投影到其内容，因为集合并不依赖其内容的内部细节（集合无法知晓其所含泛型项的实现，因此集合自己的代码也不可能利用元素的地址不变性）。
 
-Pin-utils provides the [`unsafe_pinned`](https://docs.rs/pin-utils/latest/pin_utils/macro.unsafe_pinned.html) macro to help implement pin projection, but the whole crate is deprecated in favor of the above crates and functionality now in std.
+在编写 unsafe 代码时，你只能假设固定保证适用于对象中结构化固定的字段。另一方面，你可以放心地把非结构化固定的字段当作可移动的来对待，而不必担心它们的固定要求。特别地，即使某个字段不是 `Unpin` 的，只要该字段总是被当作非结构化固定来对待，整个结构体仍然可以是 `Unpin` 的。
 
-
-### Assigning to a pinned pointer
-
-It is generally safe to [assign into a pinned pointer](https://doc.rust-lang.org/std/pin/index.html#assigning-pinned-data). Although this can't be done in the usual way (`*p = ...`), it can be done using [`Pin::set`](https://doc.rust-lang.org/std/pin/struct.Pin.html#method.set). More generally, you can use unsafe code to assign into fields of the pointee.
-
-Using `Pin::set` is always safe since the previously pinned pointee will be dropped, fulfilling the pin requirements and the new pointee is not pinned until the move into the pinned place is complete. Assigning into individual fields does not automatically violate the pinning requirements, but care must be taken to ensure that the object as a whole remains valid. For example, if a field is assigned into, then any other fields which reference that field must still be valid with the new object (this is not part of the pinning requirements, but might be part of the object's other invariants).
-
-Copying one pinned object into another pinned place can only be done in unsafe code, how safety is maintained depends on the individual object. There is no general violation of the pinning requirements - the object being replaced is not moving and nor is the object being copied. However, the validity of the object being replaced may have safety requirements which are usually protected by pinning, but in this case must be established by the programmer. For example, if we have a struct with two fields `a` and `b` where `b` refers to `a`, that reference requires pinning to be remain valid. If such a struct is copied into another place, then the value of `b` must be updated to point to the new `a` rather than the old one.
+如果一个字段是结构化固定的，那么对聚合结构体的固定要求将延伸到该字段。在聚合类型被固定期间，任何情况下代码都不能移动该字段的内容（这总是需要 unsafe 代码）。结构化固定的字段在被移动之前（包括内存释放）必须先被 drop，即使是在 panic 的情况下也是如此，这意味着在聚合类型的 `Drop` 实现中必须小心行事。此外，除非所有结构化固定的字段都是 `Unpin` 的，否则聚合结构体不能是 `Unpin` 的。
 
 
-## Pinning and async programming
+#### 用于固定投影的宏
 
-Hopefully, you can do all you ever want to do with async Rust and never worry about pinning. Sometimes you'll hit a corner case which requires using pinning and if you want to do implement futures, a runtime, or similar things, you'll need to know about pinning. In this section, I'll explain why.
+有一些宏可以帮助进行固定投影。
 
-Async functions are implemented as futures (see section TODO - this is a summary overview, make sure we explain more deeply and with examples elsewhere). At each await point execution of the function may be paused and during that time the values of live variables must be saved. They essentially become fields of a struct (which is part of an enum). Such variables may refer to other variables which are saved in the future, e.g., consider,
+[pin-project](https://docs.rs/pin-project/latest/pin_project/) crate 提供了 `#[pin_project]` 属性宏（以及 `#[pin]` 辅助属性），它通过为带注解的类型创建一个固定版本来实现安全的固定投影，该固定版本可以通过带注解类型上的 `project` 方法访问。
+
+[Pin-project-lite](https://docs.rs/pin-project-lite/latest/pin_project_lite/) 是另一种选择，它使用声明式宏（`pin_project!`），工作方式与 pin-project 非常相似。Pin-project-lite 的"轻量"在于它不是过程宏，因此不会给你的项目添加实现过程宏所需的依赖。然而，它的表达能力不如 pin-project，也不提供自定义错误信息。如果你想避免添加过程宏依赖，推荐使用 Pin-project-lite；否则推荐使用 pin-project。
+
+Pin-utils 提供了 [`unsafe_pinned`](https://docs.rs/pin-utils/latest/pin_utils/macro.unsafe_pinned.html) 宏来帮助实现固定投影，但整个 crate 已被弃用，建议改用上述 crate 以及标准库中现已提供的功能。
+
+
+### 向固定指针赋值
+
+[向固定指针赋值](https://doc.rust-lang.org/std/pin/index.html#assigning-pinned-data)通常是安全的。虽然不能用通常的方式（`*p = ...`）做到，但可以用 [`Pin::set`](https://doc.rust-lang.org/std/pin/struct.Pin.html#method.set) 来完成。更一般地，你可以用 unsafe 代码向被指向对象的字段赋值。
+
+使用 `Pin::set` 总是安全的，因为先前被固定的对象会被 drop，从而满足固定要求，而新的对象在移动进固定位置完成之前并未被固定。向单个字段赋值并不会自动违反固定要求，但必须小心确保对象整体上保持有效。例如，如果向某个字段赋了值，那么引用该字段的其它字段在与新对象的关系下必须仍然有效（这不是固定要求的一部分，但可能是对象其它不变式的一部分）。
+
+把一个固定对象复制到另一个固定位置只能在 unsafe 代码中完成，如何维持安全性取决于具体的对象。这并不构成对固定要求的普遍违反——被替换的对象没有移动，被复制的对象也没有移动。然而，被替换对象的有效性可能有通常由固定保护的安全性要求，而在这种情况下必须由程序员来建立。例如，假设我们有一个具有两个字段 `a` 和 `b` 的结构体，其中 `b` 引用了 `a`，那么该引用需要固定才能保持有效。如果这样的结构体被复制到另一个位置，那么 `b` 的值必须被更新为指向新的 `a`，而不是旧的。
+
+
+## 固定与异步编程
+
+希望你在用异步 Rust 做想做的任何事情时，都永远不必为固定操心。但有时你会遇到需要使用固定的边界情况；如果你想实现 future、运行时或类似的东西，就需要了解固定。在本节中，我将解释原因。
+
+异步函数被实现为 future（参见 TODO 一节——这里只是概览，我们会确保在其它地方更深入并结合示例讲解）。在每个 await 点，函数的执行都可能被暂停，在此期间，活跃变量的值必须被保存。它们实质上变成了一个结构体的字段（该结构体是枚举的一部分）。这样的变量可能引用保存在 future 中的其它变量，例如考虑：
 
 ```rust,norun
 async fn foo() {
@@ -247,86 +251,86 @@ async fn foo() {
 }
 ```
 
-The generated future object here will be something like:
+这里生成的 future 对象大致如下：
 
 ```rust,norun
 struct Foo {
   a: A,
-  b: &'self A,  // Invariant `self.b == &self.a`
+  b: &'self A,  // 不变式：`self.b == &self.a`
 }
 ```
 
-(I'm simplifying a bit, ignoring the state of execution, etc., but the important bit is the variables/fields).
+（我做了一些简化，忽略了执行状态等，但重要的部分是变量/字段。）
 
-This makes intuitive sense, unfortunately `'self` does not exist in Rust. And for good reason! Remember that Rust objects can be moved, so code like the following would be unsound:
+这在直觉上很合理，遗憾的是 `'self` 在 Rust 中并不存在。而且这是有充分理由的！记住 Rust 的对象是可以移动的，所以类似下面的代码是不健全的：
 
 ```rust,norun
 let f1 = Foo { ... }; // f1.b == &f1.a
-let f2 = f1; // f2.b == &f1.a, but f1 no longer exists since it moved to f2
+let f2 = f1; // f2.b == &f1.a, 但是因为 f2 移动了 f1 不再存在
 ```
 
-Note that this is not just an issue of not being able to name the lifetime, even if we use raw pointers, such code would still be incorrect.
+注意，这不仅仅是无法命名生命周期的问题；即使我们使用裸指针，这样的代码也仍然是不正确的。
 
-However, if we know that once it is created, then an instance of `Foo` will never move, then everything Just Works. (The compiler has a concept similar to `'self` internally for such cases, as a programmer, we would have to use raw pointers and unsafe code). This concept of not moving is exactly what pinning describes.
+然而，如果我们知道 `Foo` 的实例一旦创建就永远不会移动，那么一切都会自然运作（编译器内部对这种情况有一个类似 `'self` 的概念；作为程序员，我们则必须使用裸指针和 unsafe 代码）。这种"不移动"的概念正是固定所描述的。
 
-We see this requirement in the signature of `Future::poll`, where the type of `self` (the future) is `Pin<&mut Self>`. Mostly, when using async/await, the compiler takes care of pinning and unpinning, and as a programmer you don't need to worry about it.
-
-
-### Manual pinning
-
-There are some places where pinning leaks through the abstraction of async/await. At its root, this is due to the `Pin` in the signature of `Future::poll` and `Stream::poll_next`. When using futures and streams directly (rather than through async/await), we might need to consider pinning to make things work. Some common reasons to need pinned types are:
-
-- Polling a future or stream - either in application code or when implementing your own future.
-- Using boxed futures. If you're using boxed futures (or streams) and therefore writing out future types rather than using async functions, you'll likely see a lot of `Pin<...>` in those types and need to use `Box::pin` to create the futures.
-- Implementing a future - inside `poll`, `self` is pinned and therefore you need to work with pin projection and/or unsafe code to get mutable access to fields of `self`.
-- Combining futures or streams. This mostly just works, but if you need to take a reference to a future and then poll it (e.g., defining a future outside a loop and using it in `select!` inside the loop), then you will need to pin the reference to the future in order to use the reference like a future.
-- Working with streams - there is currently less abstraction in Rust around streams than futures, so you're more likely to use combinator methods (which don't technically require pinning, but seems to make issues around referencing or creating futures/streams more prevalent) or even `poll` manually than when working with futures.
+我们在 `Future::poll` 的签名中看到了这个要求，其中 `self`（即 future 本身）的类型是 `Pin<&mut Self>`。大多数情况下，使用 async/await 时编译器会处理好固定与取消固定，作为程序员你无需为此操心。
 
 
-## Alternatives and extensions
+### 手动固定
 
-This section is for those with a curiosity about the language design around pinning. You absolutely don't need to read this section if you just want to read, understand, and write async programs.
+在某些地方，固定会从 async/await 的抽象中"漏"出来。究其根源，这是由 `Future::poll` 和 `Stream::poll_next` 签名中的 `Pin` 造成的。当直接使用 future 和流（而不是通过 async/await）时，我们可能需要考虑固定才能让事情正常工作。需要固定类型的一些常见原因有：
 
-Pinning is difficult to understand and can feel a bit clunky, so people often wonder if there is a better alternative or variation. I'll cover a few alternatives and show why they either don't work or are more complex than you might expect.
-
-However before that, it's important to understand the historical context for pinning. If you are designing a brand new language and want to support async/await, self-references, or immovable types there are certainly better ways to do so than Rust's pinning. However, async/await, futures, and pinning were added to Rust after it's 1.0 release and designed in the context of a strong backwards-compatibility guarantee. Beyond that hard requirement, there was a requirement of wanting to design and implement this feature in a reasonable time frame. Some solutions (e.g., those involving linear types) would require fundamental research, design, and implementation that would realistically be measured in decades when considering the resources and constraints of the Rust project.
-
-
-### Alternatives
-
-First, lets consider the class of solutions which make Rust types non-movable by default. Note that this is a significant change to the fundamental semantics of Rust; any solution in this class would likely need significant effort to achieve backwards-compatibility (I won't speculate on if that's even possible for specific solutions, but with techniques like auto-traits, derive attributes, editions, migration tooling, etc., it is possibly possible).
-
-One proposal (really, a group of proposals since there are various ways to define the semantics) is to have a `Move` marker trait (similar to `Copy`) which marks objects as movable and all other types would be immovable. In contrast to `Pin`, this is a property of values, not of pointers, so the effect is much more far-reaching, e.g., `let a = b;` would be an error if `b` does not implement `Move`.
-
-The fundamental problem with this approach is that pinning today is a phased concept (a place starts unpinned and becomes pinned) and types apply to the whole lifetime of values. (Pinning is also best understood as a property of places rather than values, but types apply to values, whether this is a fundamental problem for any trait-based approach, I don't know). This is explored in these two blog posts: [Two Ways Not to Move](https://theincredibleholk.org/blog/2024/07/15/two-ways-not-to-move/) and [Ergonomic Self-Referential Types for Rust](https://blog.yoshuawuyts.com/self-referential-types/#immovable-types).
-
-Furthermore, any `Move` trait is likely to have problems with [backwards-compatibility](https://without.boats/blog/pin/) and lead to 'infectious bounds' (i.e., `Move` or `!Move` would be required in many, many places).
-
-Another proposal is to support move constructors similar to C++. However, this breaks the fundamental invariant of Rust that objects can always be bit-wise moved. That would make Rust much less predictable and therefore make Rust programs more difficult to understand and debug. This is a backwards-incompatible change of the worst kind because it would silently break unsafe code because it changes a fundamental assumption that authors of the code may have made. Furthermore, the design and implementation effort required for such a fundamental change would be huge. On top of those practical issues, it's unclear if it would even work: move constructors could be used to fix-up references in the object being moved, but there might be references to the object being moved from outside the object which could not be fixed up.
-
-A potential solution of a different kind is the idea of offset references. This is a reference which is relative rather than absolute, i.e., a field which is an offset reference to another field would always point within the same object, even if the object is moved in memory. The issue with offset pointers is that a field must be either an offset pointer or an absolute pointer. But references in async function become fields which sometimes reference memory internal to the future object and sometimes reference memory outside it.
+- 轮询（poll）future 或流——无论是在应用代码中，还是在实现自己的 future 时。
+- 使用装箱（boxed）future。如果你使用装箱的 future（或流），因此要手写 future 类型而不是使用 async 函数，你很可能会在这些类型中看到大量 `Pin<...>`，并且需要用 `Box::pin` 来创建 future。
+- 实现 future——在 `poll` 内部，`self` 是被固定的，因此你需要使用固定投影和/或 unsafe 代码来获得对 `self` 字段的可变访问。
+- 组合 future 或流。这通常都能正常工作，但如果你需要取得一个 future 的引用然后再轮询它（例如，在循环外定义一个 future，然后在循环内的 `select!` 中使用它），那么你需要固定该引用，才能像使用 future 一样使用它。
+- 处理流——目前 Rust 中围绕流的抽象比 future 少，因此与处理 future 相比，你更可能使用组合子方法（它们在技术上并不要求固定，但似乎使引用或创建 future/流相关的问题更常见），甚至手动 `poll`。
 
 
-### Extensions
+## 替代方案与扩展
 
-There are multiple proposals for making pinning more powerful and/or easier to work with. These are mostly proposals to make pinning a more first-class part of the language in various ways, rather than a purely library concept (they often include extensions to std as well as the language). I'll cover a few of the more developed ideas, they are related to each other and all have the general goal of improving pinning ergonomics by making creating and using pinned places easier, in particular around structural pinning and `drop`.
+本节面向对固定相关语言设计感到好奇的读者。如果你只是想阅读、理解并编写异步程序，完全不需要阅读本节。
 
-[Pinned places](https://without.boats/blog/pinned-places/) runs with the idea that pinning is property of places rather than values or types, and adds a `pin`/`pinned` modifier to references similar to `mut`. This integrates with reborrowing and method resolution to improve the ergonomics of method calls with pinned `self`.
+固定难以理解，用起来也可能让人感觉有些笨拙，因此人们常常想知道是否存在更好的替代方案或变体。我会介绍几种替代方案，并说明为什么它们要么行不通，要么比想象中更复杂。
 
-[`UnpinCell`](https://without.boats/blog/unpin-cell/) extends the pinned places idea to support native pin projection of fields. [MinPin](https://smallcultfollowing.com/babysteps/blog/2024/11/05/minpin/) is a more minimal (and backwards-compatible) proposal for native pin projection and better `drop` support.
-
-The [`Overwrite` trait](https://smallcultfollowing.com/babysteps/series/overwrite-trait/) is a proposed trait which makes explicit the distinction between permission to modify a part of an object (`foo.f = ...`) and permission to overwrite the whole object (`*foo = ...`), both of which are currently allowed for all mutable references. The proposal also includes immutable fields. `Overwrite` is a sort-of-replacement for `Unpin` which (together with some of the ideas from pinned places) could improve working with pinning. Unfortunately, although it could be adopted backwards-compatibly, the transition would be a lot more work than for the other extensions.
+不过在此之前，理解固定的历史背景很重要。如果你在设计一门全新的语言并想支持 async/await、自引用或不可移动类型，肯定有比 Rust 的固定更好的办法。然而，async/await、future 和固定都是在 Rust 1.0 发布之后才加入的，是在强向后兼容保证的背景下设计的。除了这个硬性要求之外，还有一个要求是要在合理的时间框架内设计并实现该特性。某些解决方案（例如涉及线性类型的方案）需要根本性的研究、设计与实现，考虑到 Rust 项目的资源和限制，现实地说这将是以十年为单位来度量的工作量。
 
 
-## References
+### 替代方案
 
-- [std docs](https://doc.rust-lang.org/std/pin/index.html) source of truth for behaviour and guarantees of `Pin`, etc. Good docs.
-  - [`Pin`](https://doc.rust-lang.org/std/pin/struct.Pin.html), [`Unpin`](https://doc.rust-lang.org/std/marker/trait.Unpin.html), [`pin` macro](https://doc.rust-lang.org/std/pin/macro.pin.html)
-- [RFC 2349](https://rust-lang.github.io/rfcs/2349-pin.html) the RFC which proposed pinning. The stabilized API is a bit different from the one proposed here, but there is a good explanation of the core concept and rationale in the RFC.
-- Some blog posts or other resources explaining pinning:
-  - [Pin](https://without.boats/blog/pin/) by WithoutBoats (the primary designer of pinning) on the history, context, and rationale of pinning, and why it is a difficult concept.
-  - [Why is std::pin::Pin so weird?](https://sander.saares.eu/2024/11/06/why-is-stdpinpin-so-weird/) deep dive into the rationale of the pinning design and using pinning in practice.
-  - [Pin, Unpin, and why Rust needs them](https://blog.cloudflare.com/pin-and-unpin-in-rust/)
-  - [Pinning section of async/await](https://os.phil-opp.com/async-await/#pinning)
-  - [Pin and suffering](https://fasterthanli.me/articles/pin-and-suffering) thorough blog post in a very conversational style about understanding async code and pinning with lots of examples.
-  - The book *Rust for Rustaceans* by Jon Gjengset has an excellent description of why pinning is necessary for the implementation of async/await and how pinning works.
+首先，我们考虑让 Rust 类型默认不可移动这类解决方案。注意，这是对 Rust 基本语义的重大改变；这类方案中的任何一种都可能需要巨大的努力才能实现向后兼容（我不会去猜测对具体方案来说这是否可能，但借助自动 trait、derive 属性、edition、迁移工具等技术，或许是有可能的）。
+
+一种提议（实际上是一组提议，因为语义可以有多种定义方式）是引入一个 `Move` 标记 trait（类似 `Copy`），用它标记对象为可移动的，而其它所有类型都不可移动。与 `Pin` 不同，这是值的属性而不是指针的属性，因此影响要深远得多，例如，如果 `b` 没有实现 `Move`，`let a = b;` 就会是一个错误。
+
+这种方法的根本问题在于，固定如今是一个分阶段的概念（一个位置一开始未固定，后来变为固定），而类型作用于值的整个生命周期。（固定其实更适合理解为位置的属性而不是值的属性，但类型作用于值；这是否是任何基于 trait 的方法的根本问题，我不得而知。）这两篇博文探讨了这个问题：[Two Ways Not to Move](https://theincredibleholk.org/blog/2024/07/15/two-ways-not-to-move/) 和 [Ergonomic Self-Referential Types for Rust](https://blog.yoshuawuyts.com/self-referential-types/#immovable-types)。
+
+此外，任何 `Move` trait 都可能有[向后兼容](https://without.boats/blog/pin/)问题，并导致"传染性约束"（即在非常非常多的地方都需要写上 `Move` 或 `!Move`）。
+
+另一种提议是支持类似 C++ 的移动构造函数。然而，这会破坏 Rust 的一条基本不变式：对象总是可以按位移动的。这会让 Rust 的可预测性大大降低，从而使 Rust 程序更难理解和调试。这是一种最糟糕的向后不兼容改变，因为它改变了代码作者可能已经依赖的基本假设，从而会无声地破坏 unsafe 代码。此外，如此根本性的改变所需的设计和实现工作量将是巨大的。除了这些实际问题之外，它是否能行得通也不清楚：移动构造函数可以用来修复被移动对象内部的引用，但可能还存在从对象外部指向该对象的引用，这些引用无法被修复。
+
+另一类潜在的解决方案是偏移引用（offset references）的想法。这是一种相对而非绝对的引用，即一个字段如果是指向另一个字段的偏移引用，那么即使对象在内存中被移动，它也总是指向同一对象内部。偏移指针的问题在于，一个字段必须要么是偏移指针，要么是绝对指针。但 async 函数中的引用会变成字段，它们有时引用 future 对象内部的内存，有时引用外部的内存。
+
+
+### 扩展
+
+有多个提案旨在让固定更强大和/或更易用。这些提案大多是让固定以各种方式成为语言中更一等公民的部分，而不是纯粹的库概念（它们通常既包括对语言的扩展，也包括对标准库的扩展）。我会介绍几个发展较成熟的想法，它们彼此相关，总体目标都是通过让创建和使用固定位置更容易来改善固定的易用性，尤其是围绕结构化固定和 `drop`。
+
+[Pinned places](https://without.boats/blog/pinned-places/) 顺着"固定是位置的属性而非值或类型的属性"这一思路，为引用添加了一个类似 `mut` 的 `pin`/`pinned` 修饰符。它与重借用和方法解析集成，以改善带固定 `self` 的方法调用的易用性。
+
+[`UnpinCell`](https://without.boats/blog/unpin-cell/) 扩展了固定位置的想法，以支持字段的原生固定投影。[MinPin](https://smallcultfollowing.com/babysteps/blog/2024/11/05/minpin/) 是一个更极简（且向后兼容）的提案，用于原生固定投影和更好的 `drop` 支持。
+
+[`Overwrite` trait](https://smallcultfollowing.com/babysteps/series/overwrite-trait/) 是一个提议中的 trait，它显式区分了修改对象一部分的权限（`foo.f = ...`）和覆写整个对象的权限（`*foo = ...`），而目前这两种权限对所有可变引用都是允许的。该提案还包括不可变字段。`Overwrite` 是 `Unpin` 的某种替代品，它（连同固定位置提案的一些想法）可以改善固定相关的使用体验。遗憾的是，尽管它可以向后兼容地被采纳，但过渡工作会比其它扩展多得多。
+
+
+## 参考资料
+
+- [标准库文档](https://doc.rust-lang.org/std/pin/index.html)：`Pin` 等行为与保证的最权威来源，文档质量很好。
+  - [`Pin`](https://doc.rust-lang.org/std/pin/struct.Pin.html)、[`Unpin`](https://doc.rust-lang.org/std/marker/trait.Unpin.html)、[`pin` 宏](https://doc.rust-lang.org/std/pin/macro.pin.html)
+- [RFC 2349](https://rust-lang.github.io/rfcs/2349-pin.html)：提出固定的 RFC。最终稳定的 API 与该 RFC 提案的略有不同，但 RFC 中对核心概念和设计理由有很好的解释。
+- 一些解释固定的博客文章或其它资源：
+  - [Pin](https://without.boats/blog/pin/)，作者 WithoutBoats（固定的主要设计者），讲述固定的历史、背景与设计理由，以及为什么它是一个困难的概念。
+  - [Why is std::pin::Pin so weird?](https://sander.saares.eu/2024/11/06/why-is-stdpinpin-so-weird/)：深入探讨固定设计的理由以及在实践中使用固定。
+  - [Pin, Unpin, and why Rust needs them](https://blog.cloudflare.com/pin-and-unpin-in-rust/)（《Pin、Unpin 与 Rust 为何需要它们》）
+  - [async/await 中的固定一节](https://os.phil-opp.com/async-await/#pinning)
+  - [Pin and suffering](https://fasterthanli.me/articles/pin-and-suffering)：一篇非常口语化风格的博文，通过大量示例讲解如何理解异步代码与固定。
+  - Jon Gjengset 所著的 *Rust for Rustaceans* 一书对"为什么 async/await 的实现需要固定以及固定如何工作"有出色的描述。

@@ -1,153 +1,152 @@
-# Structured Concurrency
+# 结构化并发
 
-Authors note (TODO): we might want to discuss some parts of this chapter much earlier in the book, in particularly as design principles (first intro is in guide/intro). However, in the interests of better understanding the topic and getting something written down, I'm starting with a separate chapter. It's also still a bit rough.
+作者注（TODO）：我们也许应该把本章的部分内容放到书的前面更早处讨论，特别是作为设计原则（首次介绍在 guide/intro 中）。不过，为了更好地理解这个主题并把一些内容先写下来，我以独立章节的形式开始。本章也还有些粗糙。
 
-(Note: the first few sections are talking about the abstract concept of structured concurrency and is not specific to Rust or async programming (c.f., synchronous concurrent programming with threads). I use 'task' to mean any thread or async task or other similar concurrency primitive).
+（注意：前几节讨论的是结构化并发的抽象概念，并不特定于 Rust 或异步编程（对比使用线程的同步并发编程）。我用"任务"（task）一词泛指任何线程、异步任务或其它类似的并发原语。）
 
-Structured concurrency is a philosophy for designing concurrent programs. For programs to fully adhere to the principals of structured concurrency requires certain language features and libraries, but many of the benefits are available by following the philosophy without such features. Structured concurrency is independent of language and concurrency primitives (threads vs async, etc.). Many people have found the ideas from structured concurrency to be useful when programming with async Rust.
+结构化并发是一种设计并发程序的哲学。要让程序完全遵循结构化并发的原则，需要特定的语言特性和库，但即使不具备这些特性，仅仅遵循这一哲学也能获得许多好处。结构化并发与语言及并发原语无关（线程 vs 异步等）。许多人发现，在用异步 Rust 编程时，结构化并发的思想很有用。
 
-The essential idea of structured concurrency is that tasks are organised into a tree. Child tasks start after their parents and always finish before them. This allows results and errors to always be passed back to parent tasks, and requires that cancellation of parents is always propagated to child tasks. Primarily, temporal scope follows lexical scope, which means that a task should not outlive the function or block where it is created. However, this is not a requirement of structured concurrency as long as longer-lived tasks are reified in the program in some way (typically by using an object to represent the temporal scope of a child task within its parent task).
+结构化并发的核心思想是：任务被组织成一棵树。子任务在其父任务之后启动，并且总是在父任务之前结束。这使得结果和错误总能传回父任务，并要求父任务的取消总是传播到子任务。首要的是，时间作用域遵循词法作用域，这意味着任务不应比创建它的函数或代码块活得更久。不过，只要更长寿命的任务在程序中以某种方式被实体化（通常是用一个对象来表示父任务中子任务的时间作用域），这就不算结构化并发的硬性要求。
 
-TODO diagram
+TODO 图示
 
-Structured concurrency is named by analogy to [structured programming](https://en.wikipedia.org/wiki/Structured_programming), which is the idea that control flow should be structured using functions, loops, etc., rather than arbitrary jumps (`goto`).
+结构化并发是类比[结构化编程](https://en.wikipedia.org/wiki/Structured_programming)而得名的，后者的思想是：控制流应当用函数、循环等结构来组织，而不是任意的跳转（`goto`）。
 
-Before we consider structured concurrency, it's helpful to reflect on the sense in which common concurrent designs are unstructured. A typical pattern is that a task is started using some kind of spawning statement. That task then runs to completion concurrently with other tasks in the system (including the task which spawned it). There is no constraint on which task finishes first. The program is essentially just a bag of tasks which live independently and might terminate at any time. Any communication or synchronization of the tasks is ad hoc, and the programmer cannot assume that any other task will still be running.
+在考虑结构化并发之前，反思一下常见的并发设计在何种意义上是"非结构化的"会很有帮助。一种典型的模式是：通过某种 spawn 语句启动一个任务，然后该任务与系统中的其它任务（包括启动它的任务）并发地运行至完成。哪个任务先结束没有任何约束。程序本质上只是一袋各自独立存活、随时可能终止的任务。任务之间的任何通信或同步都是临时拼凑、各不相同的（ad hoc），程序员无法假定任何其它任务仍在运行。
 
-The practical downsides of unstructured concurrency are that returning results from a task must happen in an extra-linguistic fashion with no language-level guarantees around when or how this happens. Errors may go uncaught because languages' error handling mechanisms cannot be applied to the unconstrained control flow of unstructured concurrency. We also have no guarantees about the relative state of tasks - any task may be running, terminated successfully or with an error, or externally cancelled, independent of the state of any others[^join]. All this makes concurrent programs difficult to understand and maintain. This lack of structure is one reason why concurrent programming is considered categorically more difficult than sequential programming.
+非结构化并发在实践中的缺点是：从任务返回结果必须以语言之外的方式（extra-linguistic）进行，对于何时、如何返回，语言层面没有任何保证。错误可能无人捕获，因为语言的错误处理机制无法套用到非结构化并发那种不受约束的控制流上。我们也没有关于任务相对状态的任何保证——任何任务都可能正在运行、成功终止、因错误终止或被外部取消，与其它任何任务的状态无关[^join]。这一切都让并发程序难以理解和维护。这种结构的缺失，正是并发编程被认为从根本上比顺序编程更困难的原因之一。
 
-It's worth noting that structured concurrency is a programming discipline which imposes restrictions on your program. Just like functions and loops are less flexible than goto, structured concurrency is less flexible than just spawning tasks. However, as with structured programming the costs of structured concurrency in flexibility are outweighed by the gains in predictability.
-
-
-[^join]: Using join handles mitigates these downsides somewhat, but is an ad hoc mechanism with no reliable guarantees. To get the full benefits of structured concurrency you have to be meticulous about always using them, as well as handling cancellation and errors properly. This is difficult without language or library support; we'll discuss this a bit more below.
+值得注意的是，结构化并发是一种对程序施加限制的编程纪律。正如函数和循环不如 goto 灵活一样，结构化并发也不如随意 spawn 任务灵活。然而，正如结构化编程一样，结构化并发在灵活性上的代价被可预测性上的收益所弥补。
 
 
-## Principles of structured concurrency
-
-The key idea of structured concurrency is that all tasks (or threads or whatever) are organized as a tree. I.e., each task (except the main task which is the root) has a single parent and there are no cycles of parents. A child task is started by its parent[^start-parent] and must *always* finish executing before its parent. There are no constraints between siblings. The parent of a task may not change.
-
-When reasoning about programs which implement structured concurrency, the key new fact is that if a task is live, then all of its ancestor tasks must also be live. This doesn't guarantee they are in a good state - they might be in the process of shutting down or handling an error, but they must be running in some form. This means that for any task (except the root task), there is always a live task to send results or errors to. Indeed, the ideal approach is that the language's error handling is extended so that errors are always propagated to the parent task. In Rust, this should apply to both returning `Result::Err` and to panicking.
-
-Furthermore, the lifetime of child tasks can be represented in the parent task. In the common case, the lifetime of a task (its temporal scope) is tied to the lexical scope in which it is started. For example, all tasks started within a function should complete before the function returns. This is an extremely powerful reasoning tool. Of course, this is too restrictive for all cases, and so the temporal scope of tasks can extend beyond a lexical scope by using an object in the program (often called a 'scope' or 'nursery'). Such an object can be passed or stored, and thus have an arbitrary lifetime. We still have an important reasoning tool: the tasks tied to that object cannot outlive it (in Rust this property lets us integrate tasks with the lifetime system).
-
-The above leads to another benefit of structured concurrency: it lets us reason about resource management across multiple tasks. Cleanup code is called when a resource will no longer be used (e.g., closing a file handle). In sequential code, the problem of when to call cleanup code is solved by ensuring destructors are called when an object goes out of scope. However, in concurrent code, an object might still be in use by another task and so when to clean up is unclear (reference counting or garbage collection are solutions in many cases, but make reasoning about the lifetimes of objects difficult which can lead to errors, and also has runtime overheads).
-
-The principle of a parent task outliving it's children has an important implication for cancellation: if a task is cancelled, then all its child tasks must be cancelled, and their cancellation must complete before the parent's cancellation completes. That in turn has implications for how cancellation can be implemented in a structurally concurrent system.
-
-If a task completes early due to an error (in Rust, this might mean a panic, as well as an early return), then before returning the task must wait for all its child tasks to complete. In practice, an early return must trigger cancellation of child tasks. This is analogous to panicking in Rust: panicking triggers destructors in the current scope before walking up the stack, calling destructors in each scope until the program terminates or the panic is caught. Under structural concurrency, an early return must trigger cancellation of child tasks (and thus cleanup of objects in those tasks) and walks down the tree of tasks cancelling all (transitive) children.
-
-Some designs work very naturally under structured concurrency (e.g., worker tasks with a single job to complete), while others don't fit so well. Generally these patterns are ones where not being tied to a specific task is a feature, e.g., worker pools or background threads. Even using these patterns, the tasks usually shouldn't outlive the whole program and so there is always one task which can be the parent.
+[^join]: 使用 join 句柄能在一定程度上缓解这些缺点，但那是一种临时拼凑的机制，没有任何可靠保证。要获得结构化并发的全部好处，你必须一丝不苟地始终使用它们，并正确处理取消和错误。在没有语言或库支持的情况下这很难做到；我们在下面会进一步讨论。
 
 
-[^start-parent]: This is not actually a hard requirement for structured concurrency. If the temporal scope of a task can be represented in the program and passed between tasks, then a child task can be started by one task but have another as its parent.
+## 结构化并发的原则
+
+结构化并发的关键思想是：所有任务（或线程或其它什么）被组织成一棵树。也就是说，每个任务（除了作为根的主任务）都有唯一的父任务，且不存在父任务环。子任务由其父任务启动[^start-parent]，并且*总是*要在其父任务之前结束执行。兄弟任务之间没有任何约束。任务的父任务不可改变。
+
+在推理实现了结构化并发的程序时，关键的新事实是：如果一个任务是存活的，那么它的所有祖先任务也必然是存活的。这并不保证它们处于良好状态——它们可能正在关闭过程中或正在处理错误——但它们一定在以某种形式运行。这意味着对任何任务（除了根任务）而言，总是存在一个存活的任务可以接收其结果或错误。事实上，理想的方式是扩展语言的错误处理机制，使错误总是传播到父任务。在 Rust 中，这应同时适用于返回 `Result::Err` 和 panic 的情况。
+
+此外，子任务的生命周期可以在父任务中表示。在常见情况下，任务的生命周期（其时间作用域）与启动它的词法作用域绑定。例如，在一个函数内启动的所有任务都应在该函数返回之前完成。这是一个极其强大的推理工具。当然，这对所有情况来说限制都太严格了，因此任务的时间作用域可以通过使用程序中的一个对象（常称为"作用域"（scope）或"托儿所"（nursery））扩展到词法作用域之外。这样的对象可以被传递或存储，因而具有任意的生命周期。我们仍然有一个重要的推理工具：与该对象绑定的任务不会比它活得更久（在 Rust 中，这一性质让我们能把任务与生命周期系统集成）。
+
+以上带来了结构化并发的另一个好处：它让我们能够跨多个任务推理资源管理。清理代码在资源不再被使用时被调用（例如关闭文件句柄）。在顺序代码中，何时调用清理代码的问题通过确保对象离开作用域时调用析构函数来解决。然而在并发代码中，对象可能仍被另一个任务使用，因此何时清理并不明确（引用计数或垃圾回收在许多情况下是解决方案，但它们让对象生命周期的推理变得困难，可能导致错误，而且有运行时开销）。
+
+父任务比其子任务活得更久这一原则对取消有一个重要推论：如果一个任务被取消，那么它的所有子任务都必须被取消，且它们的取消必须在父任务的取消完成之前完成。这反过来又对在结构化并发系统中如何实现取消产生了影响。
+
+如果一个任务因错误而提前完成（在 Rust 中，这可能意味着 panic，以及提前返回），那么在返回之前，该任务必须等待其所有子任务完成。在实践中，提前返回必须触发子任务的取消。这类似于 Rust 中的 panic：panic 会在沿栈向上展开之前触发当前作用域中的析构函数，在每个作用域中调用析构函数，直到程序终止或 panic 被捕获。在结构化并发下，提前返回必须触发子任务的取消（从而触发那些任务中对象的清理），并沿任务树向下展开，取消所有（传递性的）子任务。
+
+有些设计在结构化并发下工作得非常自然（例如只有一个工作要完成的 worker 任务），而另一些则不那么契合。通常，这些模式是"不与特定任务绑定本身就是特性"的模式，例如 worker 池或后台线程。即便使用这些模式，任务通常也不应比整个程序活得更久，因此总有一个任务可以作为父任务。
 
 
-### Implementing structured concurrency
-
-The exemplar implementation of structured concurrency is the Python [Trio](https://trio.readthedocs.io/en/stable/) library. Trio is a general purpose library for async programming and IO designed around the concepts of structured concurrency. Trio programs use the `async with` construct to define a lexical scope for spawning tasks. Spawned tasks are associated with a [nursery](https://trio.readthedocs.io/en/stable/reference-core.html#nurseries-and-spawning) object (which is somewhat like a [Scope](https://doc.rust-lang.org/stable/std/thread/struct.Scope.html) in Rust). The lifetime of a task is tied to the dynamic temporal scope of its nursery, and in the common case, the lexical scope of an `async with` block. This enforces the parent/child relationship between tasks and thus the tree-invariant of structured concurrency.
-
-Error handling uses Python exceptions which are automatically propagated to parent tasks.
+[^start-parent]: 这实际上并不是结构化并发的硬性要求。如果一个任务的时间作用域能够在程序中表示并在任务之间传递，那么一个子任务可以由一个任务启动，而以另一个任务作为其父任务。
 
 
-### Partially structured concurrency
+### 实现结构化并发
 
-Like many programming techniques, the full benefits of structured concurrency come from *only* using it. If all concurrency is structured, then it makes it much easier to reason about the behaviour of the whole program. However, that has requirements on a language which are not easily met; it is easy enough to do unstructured concurrency in Rust, for example. However, even applying the principles of structured concurrency selectively, or thinking in terms of structured concurrency can be useful.
+结构化并发的典范实现是 Python 的 [Trio](https://trio.readthedocs.io/en/stable/) 库。Trio 是一个围绕结构化并发概念设计的通用异步编程与 IO 库。Trio 程序使用 `async with` 结构来定义 spawn 任务的词法作用域。被 spawn 的任务与一个 [nursery](https://trio.readthedocs.io/en/stable/reference-core.html#nurseries-and-spawning)（托儿所）对象关联（它有点类似 Rust 中的 [Scope](https://doc.rust-lang.org/stable/std/thread/struct.Scope.html)）。任务的生命周期与其 nursery 的动态时间作用域绑定，而在常见情况下，即与 `async with` 块的词法作用域绑定。这强化了任务之间的父子关系，从而强化了结构化并发的树不变量。
 
-One can use structured concurrency as a design discipline. When designing a program, always consider and document the parent-child relationships between tasks and ensure that a child task terminates before it's parent. This is usually fairly easy under normal execution, but can be difficult in the face of cancellation and panics.
-
-Another element of structured concurrency which is fairly easy to adopt is to always propagate errors to the parent task. Just like regular error handling, the best thing to do might be to ignore the error, but this should be explicit in the code of the parent task.
-
-Another programming discipline to learn from structured concurrency is to cancel all child tasks in the event of cancelling a parent task. This makes the structural concurrency guarantees much more reliable and makes cancellation in general easier to reason about.
+错误处理使用 Python 的异常，异常会自动传播到父任务。
 
 
-## Practical structured concurrency with async Rust
+### 部分结构化并发
+
+与许多编程技术一样，结构化并发的全部好处来自*只*使用它。如果所有并发都是结构化的，那么对整个程序行为的推理会容易得多。然而，这对语言有一些不易满足的要求；例如，在 Rust 中做非结构化并发就很容易。不过，即使有选择地应用结构化并发的原则，或者以结构化并发的思路来思考，也是有用的。
+
+你可以把结构化并发用作一种设计纪律。设计程序时，始终考虑并记录任务之间的父子关系，并确保子任务在其父任务之前终止。在正常执行下这通常相当容易，但在面对取消和 panic 时可能很困难。
+
+结构化并发中另一个相当容易采纳的要素是：始终把错误传播到父任务。就像常规的错误处理一样，最好的做法可能是忽略该错误，但这应当在父任务的代码中显式写出来。
+
+从结构化并发中学到的另一条编程纪律是：在取消父任务时取消其所有子任务。这让结构化并发的保证更加可靠，也让取消总体上更容易推理。
 
 
-Concurrency in Rust (whether async or using threads) is inherently unstructured. Tasks can be arbitrarily spawned, errors and panics on other tasks can be ignored, and cancellation is usually instantaneous and does not propagate to other tasks (see below for why these issues can't be easily solved). However, there are several ways you can get some of the benefits of structured concurrency in your programs:
+## 在异步 Rust 中实践结构化并发
 
-- Design your programs at a high level in accordance with structured concurrency.
-- Stick to structured concurrency idioms where possible (and avoid unstructured idioms).
-- Use crates to make structured concurrency more ergonomic and reliable.
+Rust 中的并发（无论是异步还是使用线程）在本质上是非结构化的。任务可以被随意 spawn，其它任务上的错误和 panic 可以被忽略，取消通常是瞬时的且不会传播到其它任务（这些问题为什么不容易解决，见下文）。不过，有几种方法可以让你的程序获得结构化并发的一部分好处：
 
-One of the trickiest issues with using structured concurrency with Rust is propagating cancellation to child futures/tasks. If you're using futures and [composing them concurrently](../part-guide/concurrency-primitives.md), then this happens naturally if abruptly (dropping a future drops any futures it owns, cancelling them). However, when a task is dropped, there is no opportunity to send a signal to tasks it has spawned (at least not with Tokio[^join_handle]).
+- 在高层次上按照结构化并发来设计你的程序。
+- 尽可能坚持结构化并发的惯用法（并避免非结构化的惯用法）。
+- 使用一些 crate 让结构化并发更符合人体工程学、更可靠。
 
-The implication of this is that you can only assume a weaker invariant than with 'real' structured concurrency: rather than being able to assume that a parent task is always alive, you can only assume that the parent is always alive unless it has been cancelled or it has panicked. While this is sub-optimal, it can still simplify programming because you never have to handle the case of having no parent to handle some result *under normal execution*.
+在 Rust 中使用结构化并发最棘手的问题之一，是把取消传播到子 future/任务。如果你使用 future 并[并发地组合](../part-guide/concurrency-primitives.md)它们，那么这件事会自然发生，虽然有些突然（drop 一个 future 会 drop 它拥有的所有 future，从而取消它们）。然而，当一个任务被 drop 时，没有机会向它 spawn 的任务发送信号（至少在 Tokio 中如此[^join_handle]）。
 
-TODO
-
-- ownership/lifetimes naturally leading to sc
-- reasoning about resources
-
-
-[^join_handle]: The semantics of Tokio's `JoinHandle` is that if the handle is dropped, then the underlying task is 'released' (c.f., dropped), i.e., the result of the child task is not handled by any other task.
-
-
-### Applying structured concurrency to the design of async programs
-
-In terms of designing programs, applying structured concurrency has a few implications:
-
-- Organising the concurrency of a program in a tree structure, i.e., thinking in terms of parent and child tasks.
-- Temporal scope should follow lexical scope where possible, or in concrete terms a function shouldn't return (including early returns and panics) until any tasks launched in the function are complete.
-- Data generally flows from child tasks to parent tasks. Of course, some data will flow from parents to children or in other ways, but primarily, tasks pass the results of their work to their parent tasks for further processing. This includes errors, so parent tasks should handle the errors of their children.
-
-If you're writing a library and want to use structured concurrency (or you want the library to be usable in a concurrent-structured program), then it is important that encapsulation of the library component includes temporal encapsulation. I.e., it doesn't start tasks which keep running beyond the API functions returning.
-
-Since Rust can't enforce the rules of structured concurrency, it's important to be aware of, and to document, in which ways the program (or component) is structured and where it violates the structured concurrency discipline.
-
-One useful compromise pattern is to only allow unstructured concurrency at the highest level of abstraction, and only for tasks spawned from the outer-most functions of the main task (ideally only from the `main` function, but programs often have some setup or configuration code which means that the logical 'top level' of a program is actually a few functions deep). Under such a pattern, a bunch of tasks are spawned from `main`, usually with distinct responsibilities and limited interaction between each other. These tasks might be restarted, new tasks started by any other task, or have a limited lifetime tied to clients or similar, i.e., they are concurrent-unstructured. Within each of these tasks, structured concurrency is rigorously applied.
-
-TODO why is this useful?
-
-TODO would be great to have a case study here.
-
-
-### Structured and unstructured idioms
-
-This subsection covers a grab-bag of idioms which work well with a structured approach to concurrency, and a few which make structuring concurrency more difficult.
-
-The easiest way to follow structured concurrency is to use futures and [concurrent composition](../part-guide/concurrency-primitives.md) rather than tasks and spawning. If you need tasks for parallelism, then you will need to use `JoinHandle`s or `JoinSet`s. You must take care that child tasks can clean up properly if the parent task panics or is cancelled. Handles must be checked for errors to ensure errors in child tasks are properly handled.
-
-One way to work around the lack of cancellation propagation is to avoid abruptly cancelling (dropping) any task which may have children. Instead use a signal (e.g., a cancellation token) so that the task can cancel it's children before terminating. Unfortunately this is incompatible with `select`.
-
-To handle shutting down a program (or component), use an explicit shutdown method rather than dropping the component, so that the shutdown function can wait for child tasks to terminate or cancel them (since `drop` cannot be async).
-
-A few idioms do not play well with structured concurrency:
-
-- Spawning tasks without awaiting their completion via a join handle, or dropping those join handles.
-- Select or race macros/functions. These are not inherently structured, but since they abruptly cancel futures, it's a common source of unstructured cancellation.
-- Worker tasks or pools. For async tasks the overheads of starting/shutting down tasks is so low that there is likely to be very little benefit of using a pool of tasks rather than a pool of 'data', e.g., a connection pool.
-- Data with no clear ownership structure - this isn't necessarily in contradiction with structured concurrency, but often leads to design issues.
-
-
-### Crates for structured concurrency
+这意味着你只能假设一个比"真正的"结构化并发更弱的不变量：与其假设父任务总是存活，你只能假设父任务总是存活，除非它已被取消或已经 panic。虽然这并不理想，但它仍然可以简化编程，因为在*正常执行*下，你永远不必处理"没有父任务来处理某个结果"的情况。
 
 TODO
 
-- crates: [moro](https://github.com/nikomatsakis/moro), [async-nursery](https://github.com/najamelan/async_nursery)
+- 所有权/生命周期自然地引出结构化并发（sc）
+- 对资源的推理
+
+
+[^join_handle]: Tokio 的 `JoinHandle` 的语义是：如果句柄被 drop，那么底层任务会被"释放"（release，对比被 drop），也就是说，子任务的结果不会由任何其它任务处理。
+
+
+### 将结构化并发应用于异步程序的设计
+
+就程序设计而言，应用结构化并发有如下几点含义：
+
+- 以树状结构组织程序的并发，即以父任务和子任务的思路来思考。
+- 时间作用域应尽可能遵循词法作用域；具体来说，在函数中启动的所有任务完成之前，该函数不应返回（包括提前返回和 panic）。
+- 数据总体上从子任务流向父任务。当然，有些数据会从父任务流向子任务或以其它方式流动，但首要的是，任务把其工作结果传递给父任务做进一步处理。这包括错误，因此父任务应当处理其子任务的错误。
+
+如果你在编写一个库并想使用结构化并发（或者你想让这个库可以在结构化并发的程序中使用），那么库组件的封装必须包括时间封装（temporal encapsulation）。也就是说，它不能启动在 API 函数返回之后仍在运行的任务。
+
+由于 Rust 无法强制执行结构化并发的规则，重要的是要了解并记录程序（或组件）在哪些方面是结构化的，以及在哪里违反了结构化并发的纪律。
+
+一种有用的折中模式是：只允许在最高的抽象层次上使用非结构化并发，并且只针对从主任务最外层函数 spawn 的任务（理想情况下只从 `main` 函数 spawn，但程序通常有一些初始化或配置代码，因此程序逻辑上的"顶层"实际上位于若干层函数深处）。在这种模式下，一批任务从 `main` 中被 spawn 出来，通常各有明确的职责且彼此交互有限。这些任务可能会被重启、由其它任务启动新任务，或者其生命周期与客户端等绑定，也就是说，它们是"并发-非结构化"的。而在这些任务的内部，则严格应用结构化并发。
+
+TODO 为什么这很有用？
+
+TODO 这里如果能有一个案例研究就太好了。
+
+
+### 结构化与非结构化的惯用法
+
+本小节涵盖了各种与结构化并发方法配合良好的惯用法，以及少数几种会让并发结构化变得更困难的惯用法。
+
+遵循结构化并发最简单的方法是使用 future 和[并发组合](../part-guide/concurrency-primitives.md)，而不是任务和 spawn。如果你需要任务来实现并行，那么你将需要使用 `JoinHandle` 或 `JoinSet`。必须注意，在父任务 panic 或被取消时，子任务能够正确清理。必须检查句柄中的错误，以确保子任务中的错误得到正确处理。
+
+解决取消传播缺失问题的一种方法是：避免突然取消（drop）任何可能有子任务的任务。取而代之，使用信号（例如取消令牌），让该任务可以在终止之前取消其子任务。遗憾的是，这与 `select` 不兼容。
+
+要处理程序（或组件）的关闭，使用显式的关闭方法而不是 drop 组件，这样关闭函数就可以等待子任务终止或取消它们（因为 `drop` 不能是异步的）。
+
+有一些惯用法与结构化并发配合得不好：
+
+- spawn 任务却不通过 join 句柄等待其完成，或者丢弃这些 join 句柄。
+- select 或 race 宏/函数。它们并非天生非结构化，但由于它们会突然取消 future，因此是非结构化取消的常见来源。
+- worker 任务或任务池。对于异步任务，启动/关闭任务的开销非常低，因此使用任务池而不是"数据"池（例如连接池）很可能没什么好处。
+- 没有清晰所有权结构的数据——这不一定与结构化并发相矛盾，但常常导致设计问题。
+
+
+### 用于结构化并发的 crate
+
+TODO
+
+- crate：[moro](https://github.com/nikomatsakis/moro)、[async-nursery](https://github.com/najamelan/async_nursery)
 - futures-concurrency
 
 
-## Related topics
+## 相关主题
 
-This section is not necessary to know to use structured concurrency with async Rust, but is useful context included for the curious.
+本节内容并不是在异步 Rust 中使用结构化并发所必需的知识，但作为有用的背景资料，供好奇的读者参考。
 
-### Scoped threads
+### 作用域线程
 
-Structured concurrency with Rust threads works pretty well. Although you can't prevent spawning threads with unscoped lifetime, this is easy to avoid. Instead, restrict yourself to using scoped threads, see the [`scope`](https://doc.rust-lang.org/stable/std/thread/fn.scope.html) function docs for how. Using scoped threads limits child lifetimes and automatically propagates panics back to the parent thread. The parent thread must check the results of child threads to handle errors though. You can even pass around the [`Scope`](https://doc.rust-lang.org/stable/std/thread/struct.Scope.html) object like a Trio nursery. Cancellation is not usually an issue for Rust threads, but if you do make use of thread cancellation, you'll have to integrate that with scoped threads manually.
+在 Rust 线程上做结构化并发效果相当好。虽然你无法阻止用无作用域限制的生命周期 spawn 线程，但这很容易避免。相反，请约束自己只使用作用域线程（scoped threads），具体做法参见 [`scope`](https://doc.rust-lang.org/stable/std/thread/fn.scope.html) 函数的文档。使用作用域线程限制了子线程的生命周期，并自动把 panic 传播回父线程。不过，父线程必须检查子线程的结果以处理错误。你甚至可以像传递 Trio 的 nursery 一样传递 [`Scope`](https://doc.rust-lang.org/stable/std/thread/struct.Scope.html) 对象。取消对 Rust 线程来说通常不是问题，但如果你确实使用了线程取消，就必须手动把它与作用域线程集成。
 
-Specific to Rust, scoped threads allow child threads to borrow data from the parent thread, something not possible with concurrent-unstructured threads. This can be very useful and shows how well structured concurrency and Rust-ownership-style resource management can work together.
-
-
-### Async drop and scoped tasks
-
-In Rust, destructors (`drop`) are used to ensure resources are cleaned up when an object's lifetime ends. Since futures are just objects, their destructor would be an obvious place to ensure cancellation of child futures. However, in an async program it is very often desirable for cleanup actions to be asynchronous (not doing so can block other tasks). Unfortunately Rust does not currently support asynchronous destructors (async drop). There is ongoing work to support them, but it is difficult for a number of reasons, including that an object with an async destructor might be dropped from non-async context, and that since calling `drop` is implicit, there is nowhere to write an explicit `await`.
-
-Given how useful scoped threads are (both in general and for structured concurrency), another good question is why there is no similar construct for async programming ('scoped tasks')? TODO answer this
+Rust 特有的是，作用域线程允许子线程借用父线程的数据，这是"并发-非结构化"线程做不到的。这可能非常有用，也展示了结构化并发与 Rust 所有权式的资源管理可以多么好地协同工作。
 
 
-### References
+### 异步 drop 与作用域任务
 
-If you're interested, here are some good blog posts for further reading:
+在 Rust 中，析构函数（`drop`）用于确保对象生命周期结束时资源得到清理。既然 future 只是对象，它们的析构函数就是确保取消子 future 的一个显而易见的位置。然而，在异步程序中，清理操作往往最好是异步的（否则可能阻塞其它任务）。遗憾的是，Rust 目前不支持异步析构函数（async drop）。支持它们的工作正在进行中，但由于若干原因这很困难，其中包括：带有异步析构函数的对象可能从非异步上下文中被 drop；而且由于调用 `drop` 是隐式的，没有地方可以写显式的 `await`。
+
+鉴于作用域线程非常有用（无论是一般用途还是对结构化并发而言），另一个好问题是：为什么异步编程没有类似的构造（"作用域任务"，scoped tasks）？TODO 回答这个问题
+
+
+### 参考资料
+
+如果你感兴趣，这里有一些适合进一步阅读的优秀博客文章：
 
 - [Structured Concurrency](https://www.250bpm.com/p/structured-concurrency)
 - [Tree-structured concurrency](https://blog.yoshuawuyts.com/tree-structured-concurrency/index)

@@ -4,9 +4,8 @@ use futures::executor::block_on;
 
 mod first {
 // ANCHOR: hello_world
-// `block_on` blocks the current thread until the provided future has run to
-// completion. Other executors provide more complex behavior, like scheduling
-// multiple futures onto the same thread.
+// `block_on` 会阻塞当前线程，直到提供的 future 运行完毕。其他执行器提供更复杂的行为，
+// 例如将多个 future 调度到同一个线程上。
 use futures::executor::block_on;
 
 async fn hello_world() {
@@ -14,8 +13,8 @@ async fn hello_world() {
 }
 
 fn main() {
-    let future = hello_world(); // Nothing is printed
-    block_on(future); // `future` is run and "hello, world!" is printed
+    let future = hello_world(); // 没有任何输出
+    block_on(future); // `future` 被运行，并打印出 "hello, world!"
 }
 // ANCHOR_END: hello_world
 
@@ -46,9 +45,9 @@ mod third {
 use super::*;
 // ANCHOR: block_on_main
 async fn learn_and_sing() {
-    // Wait until the song has been learned before singing it.
-    // We use `.await` here rather than `block_on` to prevent blocking the
-    // thread, which makes it possible to `dance` at the same time.
+    // 等到学会这首歌之后再开始唱。
+    // 这里使用 `.await` 而不是 `block_on`，以避免阻塞线程，
+    // 这样才有可能同时 `dance`。
     let song = learn_song().await;
     sing_song(song).await;
 }
@@ -57,11 +56,11 @@ async fn async_main() {
     let f1 = learn_and_sing();
     let f2 = dance();
 
-    // `join!` is like `.await` but can wait for multiple futures concurrently.
-    // If we're temporarily blocked in the `learn_and_sing` future, the `dance`
-    // future will take over the current thread. If `dance` becomes blocked,
-    // `learn_and_sing` can take back over. If both futures are blocked, then
-    // `async_main` is blocked and will yield to the executor.
+    // `join!` 类似于 `.await`，但可以同时等待多个 future。
+    // 如果 `learn_and_sing` 这个 future 暂时被阻塞，`dance`
+    // 这个 future 就会接管当前线程。如果 `dance` 被阻塞了，
+    // `learn_and_sing` 也可以重新接管回来。如果两个 future
+    // 都被阻塞，那么 `async_main` 就会被阻塞，并将控制权让给执行器。
     futures::join!(f1, f2);
 }
 

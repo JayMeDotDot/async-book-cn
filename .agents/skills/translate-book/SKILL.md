@@ -10,6 +10,7 @@ description: Translation delivery workflow for async-book-cn. Use whenever trans
 - Each paragraph: English original on top, Chinese translation immediately below, paragraph by paragraph
 - Headings are treated the same way: English heading on top, Chinese heading below (e.g., `## 移动语义` follows `## Move semantics`)
 - Footnotes (`[^name]:`) are paired one by one
+- Do not add or remove spaces around emphasis markers (`*…*`, `_…_`, `**…**`): the user keeps surrounding spaces intentionally so the editor highlights the syntax
 - The user reviews the translation themselves and deletes the English originals once confirmed. **Do not restore English that the user has deleted** — that is a sign of approval, not lost content
 
 ## Code Blocks and TODOs

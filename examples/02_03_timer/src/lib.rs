@@ -14,15 +14,15 @@ pub struct TimerFuture {
     shared_state: Arc<Mutex<SharedState>>,
 }
 
-/// Shared state between the future and the waiting thread
+/// future 和等待线程之间共享的状态
 struct SharedState {
-    /// Whether or not the sleep time has elapsed
+    /// 睡眠时间是否已经结束
     completed: bool,
 
-    /// The waker for the task that `TimerFuture` is running on.
-    /// The thread can use this after setting `completed = true` to tell
-    /// `TimerFuture`'s task to wake up, see that `completed = true`, and
-    /// move forward.
+    /// `TimerFuture` 所运行任务的 waker。
+    /// 线程在设置 `completed = true` 之后，可以用它来
+    /// 唤醒 `TimerFuture` 的任务，让它看到 `completed = true`
+    /// 并继续向前推进。
     waker: Option<Waker>,
 }
 // ANCHOR_END: timer_decl
@@ -31,23 +31,21 @@ struct SharedState {
 impl Future for TimerFuture {
     type Output = ();
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // Look at the shared state to see if the timer has already completed.
+        // 查看共享状态，看看定时器是否已经完成。
         let mut shared_state = self.shared_state.lock().unwrap();
         if shared_state.completed {
             Poll::Ready(())
         } else {
-            // Set waker so that the thread can wake up the current task
-            // when the timer has completed, ensuring that the future is polled
-            // again and sees that `completed = true`.
+            // 设置 waker，以便线程在定时器结束后可以唤醒当前任务，
+            // 确保 future 会被再次轮询，并看到 `completed = true`。
             //
-            // It's tempting to do this once rather than repeatedly cloning
-            // the waker each time. However, the `TimerFuture` can move between
-            // tasks on the executor, which could cause a stale waker pointing
-            // to the wrong task, preventing `TimerFuture` from waking up
-            // correctly.
+            // 人们很容易在这里只设置一次，而不是每次都克隆一遍
+            // waker。然而，`TimerFuture` 可能会在执行器的任务之间
+            // 移动，这可能导致一个指向错误任务的过期 waker，
+            // 使 `TimerFuture` 无法被正确唤醒。
             //
-            // N.B. it's possible to check for this using the `Waker::will_wake`
-            // function, but we omit that here to keep things simple.
+            // 注意：可以用 `Waker::will_wake` 函数来检查这一点，
+            // 但为了保持简单，我们在这里省略了这一步。
             shared_state.waker = Some(cx.waker().clone());
             Poll::Pending
         }
@@ -57,21 +55,20 @@ impl Future for TimerFuture {
 
 // ANCHOR: timer_new
 impl TimerFuture {
-    /// Create a new `TimerFuture` which will complete after the provided
-    /// timeout.
+    /// 创建一个新的 `TimerFuture`，它将在给定的超时时间之后完成。
     pub fn new(duration: Duration) -> Self {
         let shared_state = Arc::new(Mutex::new(SharedState {
             completed: false,
             waker: None,
         }));
 
-        // Spawn the new thread
+        // 启动新线程
         let thread_shared_state = shared_state.clone();
         thread::spawn(move || {
             thread::sleep(duration);
             let mut shared_state = thread_shared_state.lock().unwrap();
-            // Signal that the timer has completed and wake up the last
-            // task on which the future was polled, if one exists.
+            // 发出定时器已完成的信号，并唤醒最后一次轮询该 future
+            // 的任务（如果存在的话）。
             shared_state.completed = true;
             if let Some(waker) = shared_state.waker.take() {
                 waker.wake()

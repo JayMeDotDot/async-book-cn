@@ -13,17 +13,17 @@ enum Poll<T> {
 struct Socket;
 impl Socket {
     fn has_data_to_read(&self) -> bool {
-        // check if the socket is currently readable
+        // 检查该 socket 当前是否可读
         true
     }
     fn read_buf(&self) -> Vec<u8> {
-        // Read data in from the socket
+        // 从 socket 中读入数据
         vec![]
     }
     fn set_readable_callback(&self, _wake: fn()) {
-        // register `_wake` with something that will call it
-        // once the socket becomes readable, such as an
-        // `epoll`-based event loop.
+        // 将 `_wake` 注册到某个会在 socket
+        // 变为可读时调用它的机制上，例如基于
+        // `epoll` 的事件循环。
     }
 }
 
@@ -37,15 +37,15 @@ impl SimpleFuture for SocketRead<'_> {
 
     fn poll(&mut self, wake: fn()) -> Poll<Self::Output> {
         if self.socket.has_data_to_read() {
-            // The socket has data -- read it into a buffer and return it.
+            // socket 中有数据了 —— 读入缓冲区并返回。
             Poll::Ready(self.socket.read_buf())
         } else {
-            // The socket does not yet have data.
+            // socket 中还没有数据。
             //
-            // Arrange for `wake` to be called once data is available.
-            // When data becomes available, `wake` will be called, and the
-            // user of this `Future` will know to call `poll` again and
-            // receive data.
+            // 安排好让 `wake` 在数据可用时被调用。
+            // 当数据可用时，`wake` 会被调用，而这个
+            // `Future` 的使用者就知道要再次调用 `poll`
+            // 并接收数据了。
             self.socket.set_readable_callback(wake);
             Poll::Pending
         }
@@ -54,15 +54,15 @@ impl SimpleFuture for SocketRead<'_> {
 // ANCHOR_END: socket_read
 
 // ANCHOR: join
-/// A SimpleFuture that runs two other futures to completion concurrently.
+/// 一个并发地运行另外两个 future 直至完成的 SimpleFuture。
 ///
-/// Concurrency is achieved via the fact that calls to `poll` each future
-/// may be interleaved, allowing each future to advance itself at its own pace.
+/// 并发是这样实现的：对各个 future 的 `poll` 调用可以交错进行，
+/// 从而让每个 future 都能按自己的节奏推进。
 pub struct Join<FutureA, FutureB> {
-    // Each field may contain a future that should be run to completion.
-    // If the future has already completed, the field is set to `None`.
-    // This prevents us from polling a future after it has completed, which
-    // would violate the contract of the `Future` trait.
+    // 每个字段都可能包含一个应当运行至完成的 future。
+    // 如果 future 已经完成，该字段会被设为 `None`。
+    // 这可以避免我们在 future 完成之后再去轮询它——那
+    // 会违反 `Future` trait 的契约。
     a: Option<FutureA>,
     b: Option<FutureB>,
 }
@@ -74,14 +74,14 @@ where
 {
     type Output = ();
     fn poll(&mut self, wake: fn()) -> Poll<Self::Output> {
-        // Attempt to complete future `a`.
+        // 尝试完成 future `a`。
         if let Some(a) = &mut self.a {
             if let Poll::Ready(()) = a.poll(wake) {
                 self.a.take();
             }
         }
 
-        // Attempt to complete future `b`.
+        // 尝试完成 future `b`。
         if let Some(b) = &mut self.b {
             if let Poll::Ready(()) = b.poll(wake) {
                 self.b.take();
@@ -89,11 +89,11 @@ where
         }
 
         if self.a.is_none() && self.b.is_none() {
-            // Both futures have completed -- we can return successfully
+            // 两个 future 都已完成 —— 我们可以成功返回了
             Poll::Ready(())
         } else {
-            // One or both futures returned `Poll::Pending` and still have
-            // work to do. They will call `wake()` when progress can be made.
+            // 一个或两个 future 返回了 `Poll::Pending`，且仍有
+            // 工作要做。当可以取得进展时，它们会调用 `wake()`。
             Poll::Pending
         }
     }
@@ -101,12 +101,12 @@ where
 // ANCHOR_END: join
 
 // ANCHOR: and_then
-/// A SimpleFuture that runs two futures to completion, one after another.
+/// 一个依次运行两个 future 直至完成的 SimpleFuture。
 //
-// Note: for the purposes of this simple example, `AndThenFut` assumes both
-// the first and second futures are available at creation-time. The real
-// `AndThen` combinator allows creating the second future based on the output
-// of the first future, like `get_breakfast.and_then(|food| eat(food))`.
+// 注意：在这个简单示例中，`AndThenFut` 假定第一个和第二个 future
+// 在创建时就都是可用的。真正的 `AndThen` 组合子允许基于第一个
+// future 的输出来创建第二个 future，例如
+// `get_breakfast.and_then(|food| eat(food))`。
 pub struct AndThenFut<FutureA, FutureB> {
     first: Option<FutureA>,
     second: FutureB,
@@ -121,15 +121,14 @@ where
     fn poll(&mut self, wake: fn()) -> Poll<Self::Output> {
         if let Some(first) = &mut self.first {
             match first.poll(wake) {
-                // We've completed the first future -- remove it and start on
-                // the second!
+                // 第一个 future 完成了 —— 移除它，接着开始第二个！
                 Poll::Ready(()) => self.first.take(),
-                // We couldn't yet complete the first future.
-                // Notice that we disrupt the flow of the `poll` function with the `return` statement.
+                // 第一个 future 还无法完成。
+                // 注意，我们用 `return` 语句中断了 `poll` 函数的执行流。
                 Poll::Pending => return Poll::Pending,
             };
         }
-        // Now that the first future is done, attempt to complete the second.
+        // 第一个 future 完成之后，接着尝试完成第二个。
         self.second.poll(wake)
     }
 }
@@ -146,9 +145,9 @@ use std::{
 trait Future {
     type Output;
     fn poll(
-        // Note the change from `&mut self` to `Pin<&mut Self>`:
+        // 注意这里从 `&mut self` 变成了 `Pin<&mut Self>`：
         self: Pin<&mut Self>,
-        // and the change from `wake: fn()` to `cx: &mut Context<'_>`:
+        // 以及这里从 `wake: fn()` 变成了 `cx: &mut Context<'_>`：
         cx: &mut Context<'_>,
     ) -> Poll<Self::Output>;
 }

@@ -9,18 +9,18 @@ use std::{
 
 // ANCHOR: stream_trait
 trait Stream {
-    /// The type of the value yielded by the stream.
+    /// 流所产生的值的类型。
     type Item;
 
-    /// Attempt to resolve the next item in the stream.
-    /// Returns `Poll::Pending` if not ready, `Poll::Ready(Some(x))` if a value
-    /// is ready, and `Poll::Ready(None)` if the stream has completed.
+    /// 尝试解析流中的下一个条目。
+    /// 若尚未就绪则返回 `Poll::Pending`，若有值就绪则返回 `Poll::Ready(Some(x))`，
+    /// 若流已结束则返回 `Poll::Ready(None)`。
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>)
         -> Poll<Option<Self::Item>>;
 }
 // ANCHOR_END: stream_trait
 
-// assert that `Stream` matches `RealStream`:
+// 断言 `Stream` 与 `RealStream` 相匹配：
 impl<I> Stream for dyn RealStream<Item = I> {
     type Item = I;
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>)
@@ -46,8 +46,8 @@ async fn send_recv() {
     tx.send(2).await.unwrap();
     drop(tx);
 
-    // `StreamExt::next` is similar to `Iterator::next`, but returns a
-    // type that implements `Future<Output = Option<T>>`.
+    // `StreamExt::next` 与 `Iterator::next` 类似，但返回的是一个
+    // 实现了 `Future<Output = Option<T>>` 的类型。
     assert_eq!(Some(1), rx.next().await);
     assert_eq!(Some(2), rx.next().await);
     assert_eq!(None, rx.next().await);

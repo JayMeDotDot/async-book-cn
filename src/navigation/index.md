@@ -3,86 +3,86 @@
 
 
 - Async/`async`
-  - [blocks](../part-guide/more-async-await.md#async-blocks)
-  - [closures](../part-guide/more-async-await.md#async-closures)
-  - [functions](../part-guide/async-await.md#async-functions)
-  - [traits](../part-guide/more-async-await.md#async-traits)
-  - [c.f., threads](../part-guide/concurrency.md#async-programming)
+  - [blocks](../part-guide/more-async-await.md#异步块)
+  - [closures](../part-guide/more-async-await.md#异步闭包)
+  - [functions](../part-guide/async-await.md#异步函数)
+  - [traits](../part-guide/more-async-await.md#异步-trait)
+  - [c.f., threads](../part-guide/concurrency.md#异步编程)
 - [`await`](../part-guide/async-await.md#await)
 
 
 
-- [Blocking](../part-guide/more-async-await.md#blocking-and-cancellation)
-  - [IO](../part-guide/more-async-await.md#blocking-io)
-  - [CPU-intensive tasks](../part-guide/io.md#other-blocking-operations)
+- [Blocking](../part-guide/more-async-await.md#阻塞与取消)
+  - [IO](../part-guide/more-async-await.md#阻塞式-io)
+  - [CPU-intensive tasks](../part-guide/io.md#cpu-密集型工作)
 
 
 
-- [Cancellation](../part-guide/more-async-await.md#cancellation)
-  - [`CancellationToken`](../part-guide/more-async-await.md#cancellation)
-  - [In `select`](../part-guide/concurrency-primitives.md#race-select)
+- [Cancellation](../part-guide/more-async-await.md#取消)
+  - [`CancellationToken`](../part-guide/more-async-await.md#取消)
+  - [In `select`](../part-guide/concurrency-primitives.md#raceselect竞速选择)
 - [Concurrency](../part-guide/concurrency.md)
-  - [c.f., parallelism](../part-guide/concurrency.md#concurrency-and-parallelism)
+  - [c.f., parallelism](../part-guide/concurrency.md#并发与并行)
   - [Primitives (`join`, `select`, etc.)](../part-guide/concurrency-primitives.md)
 - [Cooperative scheduling](../part-guide/io.md#yielding)
 
 
 
-- [Executor](../part-guide/async-await.md#the-runtime)
+- [Executor](../part-guide/async-await.md#运行时)
 
 
 
-- [Futures](../part-guide/async-await.md#futures-and-tasks)
+- [Futures](../part-guide/async-await.md#futures-与任务)
   - `Future` trait
 
 
 
 - [IO](../part-guide/io.md)
-  - [Blocking](../part-guide/more-async-await.md#blocking-io)
+  - [Blocking](../part-guide/more-async-await.md#阻塞式-io)
 
 
 
-- [`join`](../part-guide/concurrency-primitives.md#join)
-- [Joining tasks](../part-guide/async-await.md#joining-tasks)
+- [`join`](../part-guide/concurrency-primitives.md#join合并)
+- [Joining tasks](../part-guide/async-await.md#合并任务-joining-tasks)
 - [`JoinHandle`](../part-guide/async-await.md#joinhandle)
-  - [`abort`](../part-guide/more-async-await.md#cancellation)
+  - [`abort`](../part-guide/more-async-await.md#取消)
 
 
 
-- [Multiple runtimes](../part-guide/io.md#other-blocking-operations)
+- [Multiple runtimes](../part-guide/io.md#其他阻塞操作)
 - Multitasking
-  - [Cooperative](../part-guide/concurrency.md#async-programming), [yielding](../part-guide/io.md#yielding)
-  - [Pre-emptive](../part-guide/concurrency.md#processes-and-threads)
+  - [Cooperative](../part-guide/concurrency.md#异步编程), [yielding](../part-guide/io.md#yielding)
+  - [Pre-emptive](../part-guide/concurrency.md#进程与线程)
 
 
 
-- [Parallelism](../part-guide/concurrency.md#concurrency-and-parallelism)
-  - [c.f., concurrency](../part-guide/concurrency.md#concurrency-and-parallelism)
+- [Parallelism](../part-guide/concurrency.md#并发与并行)
+  - [c.f., concurrency](../part-guide/concurrency.md#并发与并行)
 - [Pinning, `Pin`](../part-reference/pinning.md)
 
 
-- [`race`](../part-guide/concurrency-primitives.md#race-select)
-- [Reactor](../part-guide/async-await.md#the-runtime)
-- [Runtimes](../part-guide/async-await.md#the-runtime)
+- [`race`](../part-guide/concurrency-primitives.md#raceselect竞速选择)
+- [Reactor](../part-guide/async-await.md#运行时)
+- [Runtimes](../part-guide/async-await.md#运行时)
 
 
 
-- [Scheduler](../part-guide/async-await.md#the-runtime)
-- [`select`](../part-guide/concurrency-primitives.md#race-select)
-- [Spawning tasks](../part-guide/async-await.md#spawning-tasks)
+- [Scheduler](../part-guide/async-await.md#运行时)
+- [`select`](../part-guide/concurrency-primitives.md#raceselect竞速选择)
+- [Spawning tasks](../part-guide/async-await.md#派生任务spawning-tasks)
 
 
 
-- [Tasks](../part-guide/async-await.md#futures-and-tasks)
-  - [Spawning](../part-guide/async-await.md#spawning-tasks)
+- [Tasks](../part-guide/async-await.md#futures-与任务)
+  - [Spawning](../part-guide/async-await.md#派生任务spawning-tasks)
 - Testing
-  - [Unit tests](../part-guide/more-async-await.md#unit-tests)
-- [Threads](../part-guide/concurrency.md#processes-and-threads)
-- [Tokio](../part-guide/async-await.md#the-runtime)
+  - [Unit tests](../part-guide/more-async-await.md#单元测试)
+- [Threads](../part-guide/concurrency.md#进程与线程)
+- [Tokio](../part-guide/async-await.md#运行时)
 - Traits
-  - [async](../part-guide/more-async-await.md#async-traits)
+  - [async](../part-guide/more-async-await.md#异步-trait)
   - `Future`
-- [`try_join`](../part-guide/concurrency-primitives.md#join)
+- [`try_join`](../part-guide/concurrency-primitives.md#join合并)
 
 
 
@@ -90,7 +90,7 @@
 
 
 
-- [Waiting](../part-guide/io.md#other-blocking-operations)
+- [Waiting](../part-guide/io.md#其他阻塞操作)
 
 
 

@@ -1,87 +1,58 @@
-# The Async Ecosystem
-Rust currently provides only the bare essentials for writing async code.
-Importantly, executors, tasks, reactors, combinators, and low-level I/O futures and traits
-are not yet provided in the standard library. In the meantime,
-community-provided async ecosystems fill in these gaps.
+# 异步生态
 
-The Async Foundations Team is interested in extending examples in the Async Book to cover multiple runtimes.
-If you're interested in contributing to this project, please reach out to us on
-[Zulip](https://rust-lang.zulipchat.com/#narrow/stream/201246-wg-async-foundations.2Fbook).
+Rust 目前仅为编写异步代码提供了最基本的支持。重要的是，执行器（executor）、任务（task）、反应器（reactor）、组合器（combinator）以及底层 I/O 的 future 和 trait尚未被纳入标准库。在此期间，由社区提供的异步生态填补了这些空白。
 
-## Async Runtimes
-Async runtimes are libraries used for executing async applications.
-Runtimes usually bundle together a *reactor* with one or more *executors*.
-Reactors provide subscription mechanisms for external events, like async I/O, interprocess communication, and timers.
-In an async runtime, subscribers are typically futures representing low-level I/O operations.
-Executors handle the scheduling and execution of tasks.
-They keep track of running and suspended tasks, poll futures to completion, and wake tasks when they can make progress.
-The word "executor" is frequently used interchangeably with "runtime".
-Here, we use the word "ecosystem" to describe a runtime bundled with compatible traits and features.
+异步基础工作组（Async Foundations Team）有兴趣扩展《Async Book》中的示例，使其覆盖多个运行时。如果你有兴趣为这个项目做贡献，请通过 [Zulip](https://rust-lang.zulipchat.com/#narrow/stream/201246-wg-async-foundations.2Fbook) 联系我们。
 
-## Community-Provided Async Crates
+## 异步运行时
 
-### The Futures Crate
-The [`futures` crate](https://docs.rs/futures/) contains traits and functions useful for writing async code.
-This includes the `Stream`, `Sink`, `AsyncRead`, and `AsyncWrite` traits, and utilities such as combinators.
-These utilities and traits may eventually become part of the standard library.
+异步运行时（runtime）是用于执行异步应用程序的库。运行时通常将一个 *reactor* 与一个或多个 *executor* 捆绑在一起。反应器为外部事件提供订阅机制，例如异步 I/O、进程间通信和定时器。在异步运行时中，订阅者通常是代表底层 I/O 操作的 future。执行器负责任务的调度与执行。它们跟踪正在运行和已挂起的任务，轮询 future 直至其完成，并在任务可以取得进展时将其唤醒。"executor" 一词经常与 "runtime" 混用。在这里，我们使用 "ecosystem" 一词来描述与兼容的 trait 和特性捆绑在一起的运行时。
 
-`futures` has its own executor, but not its own reactor, so it does not support execution of async I/O or timer futures.
-For this reason, it's not considered a full runtime.
-A common choice is to use utilities from `futures` with an executor from another crate.
+## 社区提供的异步 crate
 
-### Popular Async Runtimes
-There is no asynchronous runtime in the standard library, and none are officially recommended.
-The following crates provide popular runtimes.
-- [Tokio](https://docs.rs/tokio/): A popular async ecosystem with HTTP, gRPC, and tracing frameworks.
-- [async-std](https://docs.rs/async-std/): A crate that provides asynchronous counterparts to standard library components.
-- [smol](https://docs.rs/smol/): A small, simplified async runtime.
-Provides the `Async` trait that can be used to wrap structs like `UnixStream` or `TcpListener`.
-- [fuchsia-async](https://fuchsia.googlesource.com/fuchsia/+/master/src/lib/fuchsia-async/):
-An executor for use in the Fuchsia OS.
+### futures crate
 
-## Determining Ecosystem Compatibility
-Not all async applications, frameworks, and libraries are compatible with each other, or with every OS or platform.
-Most async code can be used with any ecosystem, but some frameworks and libraries require the use of a specific ecosystem.
-Ecosystem constraints are not always documented, but there are several rules of thumb to determine
-whether a library, trait, or function depends on a specific ecosystem.
+[`futures` crate](https://docs.rs/futures/) 包含对编写异步代码有用的 trait 和函数。其中包括 `Stream`、`Sink`、`AsyncRead` 和 `AsyncWrite` trait，以及诸如组合器之类的实用工具。这些实用工具和 trait 最终可能会成为标准库的一部分。
 
-Any async code that interacts with async I/O, timers, interprocess communication, or tasks
-generally depends on a specific async executor or reactor.
-All other async code, such as async expressions, combinators, synchronization types, and streams
-are usually ecosystem independent, provided that any nested futures are also ecosystem independent.
-Before beginning a project, it's recommended to research relevant async frameworks and libraries to ensure
-compatibility with your chosen runtime and with each other.
+`futures` 自带执行器，但没有自带反应器，因此它不支持执行异步 I/O 或定时器 future。出于这个原因，它不被视为一个完整的运行时。常见的做法是将 `futures` 的实用工具与来自其他 crate 的执行器搭配使用。
 
-Notably, `Tokio` uses the `mio` reactor and defines its own versions of async I/O traits,
-including `AsyncRead` and `AsyncWrite`.
-On its own, it's not compatible with `async-std` and `smol`,
-which rely on the [`async-executor` crate](https://docs.rs/async-executor), and the `AsyncRead` and `AsyncWrite`
-traits defined in `futures`.
+### 常见的异步运行时
 
-Conflicting runtime requirements can sometimes be resolved by compatibility layers
-that allow you to call code written for one runtime within another.
-For example, the [`async_compat` crate](https://docs.rs/async_compat) provides a compatibility layer between
-`Tokio` and other runtimes.
+标准库中没有异步运行时，官方也没有推荐任何运行时。以下 crate 提供了常见的运行时。
 
-Libraries exposing async APIs should not depend on a specific executor or reactor,
-unless they need to spawn tasks or define their own async I/O or timer futures.
-Ideally, only binaries should be responsible for scheduling and running tasks.
+- [Tokio](https://docs.rs/tokio/)：一个流行的异步生态，拥有 HTTP、gRPC 和 tracing 框架。
 
-## Single Threaded vs Multi-Threaded Executors
-Async executors can be single-threaded or multi-threaded.
-For example, the `async-executor` crate has both a single-threaded `LocalExecutor` and a multi-threaded `Executor`.
+- [async-std](https://docs.rs/async-std/)：一个为标准库组件提供异步对应实现的 crate。
 
-A multi-threaded executor makes progress on several tasks simultaneously.
-It can speed up the execution greatly for workloads with many tasks,
-but synchronizing data between tasks is usually more expensive.
-It is recommended to measure performance for your application
-when you are choosing between a single- and a multi-threaded runtime.
+- [smol](https://docs.rs/smol/)：一个小巧、精简的异步运行时。
+它提供了 `Async` trait，可用于包装 `UnixStream` 或 `TcpListener` 之类的结构体。
 
-Tasks can either be run on the thread that created them or on a separate thread.
-Async runtimes often provide functionality for spawning tasks onto separate threads.
-Even if tasks are executed on separate threads, they should still be non-blocking.
-In order to schedule tasks on a multi-threaded executor, they must also be `Send`.
-Some runtimes provide functions for spawning non-`Send` tasks,
-which ensures every task is executed on the thread that spawned it.
-They may also provide functions for spawning blocking tasks onto dedicated threads,
-which is useful for running blocking synchronous code from other libraries.
+- [fuchsia-async](https://fuchsia.googlesource.com/fuchsia/+/master/src/lib/fuchsia-async/)：
+一个用于 Fuchsia OS 的执行器。
+
+## 判断生态兼容性
+
+并非所有异步应用程序、框架和库都彼此兼容，或与所有操作系统和平台兼容。大多数异步代码可以在任何生态中使用，但某些框架和库要求使用特定的生态。生态约束并不总是有文档说明，但有几条经验法则可以用来判断某个库、trait 或函数是否依赖于特定的生态。
+
+任何与异步 I/O、定时器、进程间通信或任务交互的异步代码，通常都依赖于特定的异步执行器或反应器。所有其他异步代码，例如异步表达式、组合器、同步类型和流（stream），通常是生态无关的，前提是其中嵌套的 future 也都是生态无关的。在开始一个项目之前，建议先调研相关的异步框架和库，以确保它们与你选择的运行时兼容，并且彼此之间也兼容。
+
+值得注意的是，`Tokio` 使用 `mio` 反应器，并定义了自己的异步 I/O trait 版本，包括 `AsyncRead` 和 `AsyncWrite`。就其本身而言，它与 `async-std` 和 `smol` 并不兼容，后者依赖 [`async-executor` crate](https://docs.rs/async-executor)，以及 `futures` 中定义的 `AsyncRead` 和 `AsyncWrite` trait。
+
+冲突的运行时需求有时可以通过兼容层来解决，兼容层允许你在另一个运行时中调用为某个运行时编写的代码。例如，[`async_compat` crate](https://docs.rs/async_compat) 提供了 `Tokio` 与其他运行时之间的兼容层。
+
+暴露异步 API 的库不应依赖于特定的执行器或反应器，除非它们需要生成任务，或定义自己的异步 I/O 或定时器 future。理想情况下，只有二进制可执行程序才应该负责任务的调度和运行。
+
+## 单线程执行器与多线程执行器
+
+异步执行器可以是单线程的，也可以是多线程的。例如，`async-executor` crate 既有单线程的 `LocalExecutor`，也有多线程的 `Executor`。
+
+多线程执行器可以同时推进多个任务。对于包含大量任务的工作负载，它可以大幅加快执行速度，但在任务之间同步数据通常开销更大。在单线程运行时和多线程运行时之间做选择时，建议先对你的应用程序进行性能测量。
+
+任务既可以在创建它的线程上运行，也可以在单独的线程上运行。
+异步运行时通常提供将任务生成到单独线程上的功能。
+即使任务在单独的线程上执行，它们也仍然应该是非阻塞的。
+为了在多线程执行器上调度任务，任务还必须实现 `Send`。
+一些运行时提供了生成非 `Send` 任务的函数，
+这能确保每个任务都在生成它的线程上执行。
+它们还可能提供将阻塞任务生成到专用线程的函数，
+这对于运行来自其他库的阻塞式同步代码很有用。

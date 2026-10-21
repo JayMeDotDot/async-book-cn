@@ -4,7 +4,7 @@
 mod example {
 // ANCHOR: example
 use futures::{
-    future::FutureExt, // for `.fuse()`
+    future::FutureExt, // 用于 `.fuse()`
     pin_mut,
     select,
 };
@@ -40,7 +40,7 @@ async fn count() {
             a = a_fut => total += a,
             b = b_fut => total += b,
             complete => break,
-            default => unreachable!(), // never runs (futures are ready, then complete)
+            default => unreachable!(), // 永远不会运行（两个 future 都已就绪，随后即完成）
         };
     }
     assert_eq!(total, 10);
@@ -105,21 +105,21 @@ async fn run_loop(
     loop {
         select! {
             () = interval_timer.select_next_some() => {
-                // The timer has elapsed. Start a new `get_new_num_fut`
-                // if one was not already running.
+                // 定时器已到时。如果尚未运行 `get_new_num_fut`，
+                // 则启动一个新的。
                 if get_new_num_fut.is_terminated() {
                     get_new_num_fut.set(get_new_num().fuse());
                 }
             },
             new_num = get_new_num_fut => {
-                // A new number has arrived -- start a new `run_on_new_num_fut`,
-                // dropping the old one.
+                // 一个新数字已到达 —— 启动一个新的 `run_on_new_num_fut`，
+                // 并丢弃旧的。
                 run_on_new_num_fut.set(run_on_new_num(new_num).fuse());
             },
-            // Run the `run_on_new_num_fut`
+            // 运行 `run_on_new_num_fut`
             () = run_on_new_num_fut => {},
-            // panic if everything completed, since the `interval_timer` should
-            // keep yielding values indefinitely.
+            // 如果全部完成则 panic，因为 `interval_timer` 应该
+            // 会无限期地持续产生值。
             complete => panic!("`interval_timer` completed unexpectedly"),
         }
     }
@@ -151,22 +151,22 @@ async fn run_loop(
     loop {
         select! {
             () = interval_timer.select_next_some() => {
-                // The timer has elapsed. Start a new `get_new_num_fut`
-                // if one was not already running.
+                // 定时器已到时。如果尚未运行 `get_new_num_fut`，
+                // 则启动一个新的。
                 if get_new_num_fut.is_terminated() {
                     get_new_num_fut.set(get_new_num().fuse());
                 }
             },
             new_num = get_new_num_fut => {
-                // A new number has arrived -- start a new `run_on_new_num_fut`.
+                // 一个新数字已到达 —— 启动一个新的 `run_on_new_num_fut`。
                 run_on_new_num_futs.push(run_on_new_num(new_num));
             },
-            // Run the `run_on_new_num_futs` and check if any have completed
+            // 运行 `run_on_new_num_futs` 并检查是否有已完成的
             res = run_on_new_num_futs.select_next_some() => {
                 println!("run_on_new_num_fut returned {:?}", res);
             },
-            // panic if everything completed, since the `interval_timer` should
-            // keep yielding values indefinitely.
+            // 如果全部完成则 panic，因为 `interval_timer` 应该
+            // 会无限期地持续产生值。
             complete => panic!("`interval_timer` completed unexpectedly"),
         }
     }

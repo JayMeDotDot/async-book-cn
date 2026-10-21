@@ -14,9 +14,9 @@ async fn process_request(stream: &mut TcpStream) -> Result<(), std::io::Error>{
 async fn main() {
     let listener = TcpListener::bind("127.0.0.1:8080").await.unwrap();
     loop {
-        // Accept a new connection
+        // 接受一个新的连接
         let (mut stream, _) = listener.accept().await.unwrap();
-        // Now process this request without blocking the main loop
+        // 现在处理这个请求，而不会阻塞主循环
         task::spawn(async move {process_request(&mut stream).await});
     }
 }
@@ -35,7 +35,7 @@ async fn task_spawner(){
         task::spawn(my_task(Duration::from_secs(2))),
         task::spawn(my_task(Duration::from_secs(3))),
     ];
-    // If we do not await these tasks and the function finishes, they will be dropped
+    // 如果我们不 await 这些任务，并且函数就此结束，它们就会被 drop（丢弃）
     join_all(tasks).await;
 }
 // ANCHOR_END: join_all

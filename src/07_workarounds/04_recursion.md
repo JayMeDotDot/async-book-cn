@@ -1,40 +1,37 @@
-# Recursion
+# 递归
 
-Internally, `async fn` creates a state machine type containing each
-sub-`Future` being `.await`ed. This makes recursive `async fn`s a little
-tricky, since the resulting state machine type has to contain itself:
+在内部，`async fn` 会创建一个状态机类型，其中包含每个被 `.await` 的子 `Future`。这使得递归的 `async fn` 有点棘手，因为最终生成的状态机类型必须包含它自身：
 
 ```rust,edition2018
 # async fn step_one() { /* ... */ }
 # async fn step_two() { /* ... */ }
 # struct StepOne;
 # struct StepTwo;
-// This function:
+// 这个函数:
 async fn foo() {
     step_one().await;
     step_two().await;
 }
-// generates a type like this:
+// 生成一个这样的类型:
 enum Foo {
     First(StepOne),
     Second(StepTwo),
 }
 
-// So this function:
+// 所以这个函数:
 async fn recursive() {
     recursive().await;
     recursive().await;
 }
 
-// generates a type like this:
+// 会生成这样的类型:
 enum Recursive {
     First(Recursive),
     Second(Recursive),
 }
 ```
 
-This won't work—we've created an infinitely-sized type!
-The compiler will complain:
+这是行不通的——我们创建了一个无限大小的类型！编译器会报错：
 
 ```
 error[E0733]: recursion in an async fn requires boxing
@@ -46,29 +43,20 @@ error[E0733]: recursion in an async fn requires boxing
   = note: a recursive `async fn` call must introduce indirection such as `Box::pin` to avoid an infinitely sized future
 ```
 
-In order to allow this, we have to introduce an indirection using `Box`.
+为了允许这样做，我们必须使用 `Box` 引入一层间接。
 
-Prior to Rust 1.77, due to compiler limitations, just wrapping the calls to
-`recursive()` in `Box::pin` isn't enough. To make this work, we have
-to make `recursive` into a non-`async` function which returns a `.boxed()`
-`async` block:
+在 Rust 1.77 之前，由于编译器的限制，仅仅把对 `recursive()` 的调用包装在 `Box::pin` 中是不够的。要使其正常工作，我们必须把 `recursive` 改写成一个非 `async` 函数，它返回一个经过 `.boxed()` 的 `async` 块：
 
 ```rust,edition2018
 {{#include ../../examples/07_05_recursion/src/lib.rs:example}}
 ```
 
-In newer version of Rust, [that compiler limitation has been lifted].
+在新版本的 Rust 中，[那个编译器限制已被解除](https://github.com/rust-lang/rust/pull/117703/)。
 
-Since Rust 1.77, support for recursion in `async fn` with allocation
-indirection [becomes stable], so recursive calls are permitted so long as they
-use some form of indirection to avoid an infinite size for the state of the
-function.
+自 Rust 1.77 起，借助分配间接（allocation indirection）实现的 `async fn` 递归支持[已成为稳定特性](https://blog.rust-lang.org/2024/03/21/Rust-1.77.0.html#support-for-recursion-in-async-fn)，因此只要递归调用使用某种形式的间接来避免函数状态出现无限大小，就是允许的。
 
-This means that code like this now works:
+这意味着像下面这样的代码现在可以正常工作了：
 
 ```rust,edition2021
 {{#include ../../examples/07_05_recursion/src/lib.rs:example_pinned}}
 ```
-
-[becomes stable]: https://blog.rust-lang.org/2024/03/21/Rust-1.77.0.html#support-for-recursion-in-async-fn
-[that compiler limitation has been lifted]: https://github.com/rust-lang/rust/pull/117703/

@@ -7,7 +7,7 @@ async fn main() {
     let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
     for stream in listener.incoming() {
         let stream = stream.unwrap();
-        // Warning: This is not concurrent!
+        // 警告：这并不是并发
         handle_connection(stream).await;
     }
 }
